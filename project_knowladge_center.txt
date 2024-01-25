@@ -1,0 +1,38 @@
+
+
+files that needed change in order to change image sizes of training data - 
+
+/app/tools/data/dota/split/split_configs/ss_trainval.json
+/app/tools/data/dota/split/split_configs/ss_test.json
+
+after changes been made we need to run 
+
+python tools/data/dota/split/img_split.py --base-json \
+  tools/data/dota/split/split_configs/ss_trainval.json
+
+python tools/data/dota/split/img_split.py --base-json \
+  tools/data/dota/split/split_configs/ss_test.json
+
+from the docker shell when we are at app directory
+
+
+json fields 
+sizes - images final size for rate = 1.0
+gap - the steps of sliding widnows
+rate - control in size, (rate = 0.5, size = 256) will result in (512, 512) images
+image_rate_thr - the minimal rate of image in window and window'
+iof_thr - the minimal iof between a object and a window
+
+
+there are config files in which we can config stuff like atch size etc' (lr is not defined there)- 
+(for example)
+
+/app/configs/rotated_rtmdet/rotated_rtmdet_l-3x-dota.py
+
+another important config files can be found at  
+
+/app/configs/rotated_rtmdet/__base__
+
+from running "/app/configs/rotated_rtmdet/rotated_rtmdet_l-3x-dota.py" i see that these files metters (    cfg = Config.fromfile(args.config) -> Config._get_base_files(temp_config_file.name))
+['./_base_/default_runtime.py', './_base_/schedule_3x.py', './_base_/dota_rr.py']
+
