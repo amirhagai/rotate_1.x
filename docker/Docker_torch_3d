@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+RUN conda remove --name myenv --all
 # Create a new Conda environment with Python 3.9
 RUN conda create -y -n pytorch3d python=3.9
 
@@ -29,6 +30,8 @@ RUN conda install -c bottler nvidiacub
 # Install PyTorch, torchvision, and CUDA support in the Python 3.9 environment
 RUN conda install -y pytorch=1.13.0 torchvision cudatoolkit=11.6 -c pytorch -c nvidia \
     && conda install -y -c fvcore -c iopath -c conda-forge fvcore iopath
+    
+RUN conda install pytorch3d -c pytorch3d
 
 ENV FORCE_CUDA="1"
 
