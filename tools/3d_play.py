@@ -56,6 +56,15 @@ import os
 sys.path.append(os.path.abspath(''))
 
 
+def draw_pixels(image, y_pixel_int, x_pixel_int, square_size, paint_color):
+    pixels_to_highlight = np.stack((y_pixel_int, x_pixel_int), axis=1)
+    for i, (y, x) in enumerate(pixels_to_highlight):
+        # Ensure the square stays within image bounds
+        x_start = max(0, x - square_size // 2)
+        y_start = max(0, y - square_size // 2)
+        x_end = min(image.shape[1], x + square_size // 2 + 1)
+        y_end = min(image.shape[0], y + square_size // 2 + 1)
+        image[y_start:y_end, x_start:x_end] = paint_color
 
 def find_angle_from_bbox(top_left, bottom_left, top_right, bottom_right, degrees=False):
 
@@ -76,7 +85,7 @@ def find_angle_from_bbox(top_left, bottom_left, top_right, bottom_right, degrees
     elif dx == 0 and dy < 0:
         angle_degrees = np.array([90])
 
-    return angle_degrees
+    return -angle_degrees
 
 def get_extreme_pixels(x_pixel_int, y_pixel_int, indecis=False):
 
@@ -215,7 +224,7 @@ def visualization_tests():
 class InjectedObject:
 
 
-    def __init__(self, obj_file_path, TZ_start = 70) -> None:
+    def __init__(self, obj_file_path, TZ_start = 70, T=None) -> None:
 
         if torch.cuda.is_available():
             device = torch.device("cuda:0")
@@ -230,11 +239,125 @@ class InjectedObject:
         self.verts = mesh.verts_packed()  # Get the vertices of the mesh
         self.TZ_start = TZ_start
 
-        self.base_R, self.base_T = look_at_view_transform(self.TZ_start, elev=0, azim=180) 
+        self.base_R, self.base_T = look_at_view_transform(self.TZ_start, elev=90, azim=0, up=((0, 0, 1),), at=((0, 0, 0),)) 
+
+        if T is not None:
+            self.base_T = T
+
         self.camera = FoVPerspectiveCameras(device=device, R=self.base_R, T=self.base_T)
 
 
-    def get_extreme_pixels(self, angle, image_shape, debug_seasion=False):
+
+
+    def find_closest(self, x, y, z, debug=False):
+        verts = self.verts
+        recived_tensor = torch.tensor([x, y, z], device=verts.device)
+
+        if debug:
+            distances = torch.norm(verts - recived_tensor, dim=1)
+            ind = distances.argmin()
+            print(f"minimal distance is  {distances[ind]}")
+            print(f"recivied tensor is - {recived_tensor.tolist()}")
+            found = verts[ind]
+            print(f"found              - {found.tolist()}")
+            print()
+            return found
+        return verts[torch.norm(verts - recived_tensor, dim=1).argmin()]
+
+
+
+
+    def get_mesh_extreme_points_from_looking_above_view(self):
+
+        """
+        only works for looking above!, Y is the objects highet
+
+        R, T = look_at_view_transform(something, elev=90, azim=0, up=((0, 0, 1),), at=((0, 0, 0),)) 
+        """
+
+
+        verts = self.mesh.verts_packed()
+        x_max = verts[:, 0].max()
+        x_min = verts[:, 0].min()
+
+        y_max = verts[:, 1].max()
+        y_min = verts[:, 1].min()
+
+        z_max = verts[:, 2].max()
+        z_min = verts[:, 2].min()
+
+        # verts = self.mesh.verts_packed()
+
+        x_max_y_max_z_max = self.find_closest(x_max, y_max, z_max)
+        x_max_y_min_z_max = self.find_closest(x_max, y_min, z_max)
+        x_min_y_max_z_max = self.find_closest(x_min, y_max, z_max)
+        x_min_y_min_z_max = self.find_closest(x_min, y_min, z_max)
+
+        x_max_y_max_z_min = self.find_closest(x_max, y_max, z_min)
+        x_max_y_min_z_min = self.find_closest(x_max, y_min, z_min)
+        x_min_y_max_z_min = self.find_closest(x_min, y_max, z_min)
+        x_min_y_min_z_min = self.find_closest(x_min, y_min, z_min)
+
+
+
+
+        return x_max_y_max_z_min, x_min_y_max_z_min, x_max_y_max_z_max, x_min_y_max_z_max , x_max_y_min_z_max, x_min_y_min_z_max, x_max_y_min_z_min, x_min_y_min_z_min
+
+
+
+    def render_mesh(self, T_z, angle, T=None, R=None):
+        # Initialize a camera.
+        # With world coordinates +Y up, +X left and +Z in, the front of the cow is facing the -Z direction. 
+        # So we move the camera by 180 in the azimuth direction so it is facing the front of the cow. 
+        R_, T_ = look_at_view_transform(T_z, elev=90, azim=0, up=((0, 0, 1),), at=((0, 0, 0),)) 
+        rotate_transform = RotateAxisAngle(angle=angle, axis="Y")
+        rotation_matrix = rotate_transform.get_matrix()
+        R_ = torch.bmm(rotation_matrix[:, :3, :3], R_)
+
+        if T is None:
+            T = T_
+
+        if R is None:
+            R = R_
+        cameras = FoVPerspectiveCameras(device=device, R=R, T=T)
+
+        raster_settings = RasterizationSettings(
+            image_size=1024, 
+            blur_radius=0.0, 
+            faces_per_pixel=1, 
+            bin_size=0,  # Use naive rasterization
+            max_faces_per_bin=None  # Optionally, adjust this value based on your needs
+        )
+
+        # Place a point light in front of the object. As mentioned above, the front of the cow is facing the 
+        # -z direction. 
+        lights = PointLights(device=device, location=[[0.0, 0.0, -3.0]])
+
+        # Create a Phong renderer by composing a rasterizer and a shader. The textured Phong shader will 
+        # interpolate the texture uv coordinates for each vertex, sample from a texture image and 
+        # apply the Phong lighting model
+        renderer = MeshRenderer(
+            rasterizer=MeshRasterizer(
+                cameras=cameras, 
+                raster_settings=raster_settings
+            ),
+            shader=SoftPhongShader(
+                device=device, 
+                cameras=cameras,
+                lights=lights
+            )
+        )
+
+
+        images = renderer(self.mesh)
+
+
+        # plt.imshow(images[:, :, :, :3][0])
+        return images[:, :, :, :3][0]
+
+
+
+    def get_extreme_pixels(self, angle, image_shape, width=1024, height=1024):
 
         """
         vertex to pixel equation -> 
@@ -244,13 +367,22 @@ class InjectedObject:
         we now doing it with base T as we only want to get the extreme pixels
         """
 
-        R = InjectedObject.get_R(angle)
+
+        x_max_y_max_z_min, x_min_y_max_z_min, x_max_y_max_z_max, x_min_y_max_z_max, x_max_y_min_z_max, \
+        x_min_y_min_z_max, x_max_y_min_z_min, x_min_y_min_z_min = self.get_mesh_extreme_points_from_looking_above_view()
+
+        # bottom_left_v, bottom_right_v, top_left_v, top_right_v = self.get_mesh_extreme_points_from_looking_above_view() # rename
+        verts = torch.stack([x_max_y_max_z_min, x_min_y_max_z_min, x_max_y_max_z_max, x_min_y_max_z_max, x_max_y_min_z_max, \
+        x_min_y_min_z_max, x_max_y_min_z_min, x_min_y_min_z_min], axis=0)
+
+        R = self.get_R(angle)
+
         fov = (self.camera.fov * np.pi) / 180 # angles to radins
         fov_weight = 1 / np.tan((fov / 2))
 
-        R1 = R[:3, 0][0]
-        R2 = R[:3, 1][0]
-        R3 = R[:3, 2][0]
+        R1 = R[0][:3, 0]
+        R2 = R[0][:3, 1]
+        R3 = R[0][:3, 2]
 
         V_R_1 = verts @ R1
         V_R_2 = verts @ R2
@@ -259,43 +391,17 @@ class InjectedObject:
         xs = fov_weight * (V_R_1 + self.base_T[0, 0]) / (V_R_3 + self.base_T[0, 2])
         ys = fov_weight * (V_R_2 + self.base_T[0, 1]) / (V_R_3 + self.base_T[0, 2])
 
-        width, height = image_shape[1], image_shape[2]  # Example viewport dimensions
-        x_pixel = ((xs + 1) / 2.0) * width
+
+        x_pixel = ((1 - xs) / 2.0) * width
         y_pixel = ((1 - ys) / 2.0) * height 
 
         x_pixel_int = np.clip(x_pixel.cpu().numpy().round().astype(int), 0, width - 1)
         y_pixel_int = np.clip(y_pixel.cpu().numpy().round().astype(int), 0, height - 1)
-        
-        # bottom_left, top_right, top_left, bottom_right
-        # [[z1, y_pixel_int[z1].argmax()], [z2, y_pixel_int[z2].argmin()], [z3, x_pixel_int[z3].argmax()], [z4, x_pixel_int[z4].argmin()]]
 
-        pix_x, pix_y, indecis = get_extreme_pixels(x_pixel_int, y_pixel_int, indecis=True)
+        pix_x = x_pixel_int
+        pix_y = y_pixel_int
 
-        indecis_bottom_left, indecis_top_right, indecis_top_left, indecis_bottom_right = indecis
-        v_bottom_left = verts[indecis_bottom_left[0]][indecis_bottom_left[1]]
-        v_top_right = verts[indecis_top_right[0]][indecis_top_right[1]]
-        v_top_left = verts[indecis_top_left[0]][indecis_top_left[1]]
-        v_bottom_right = verts[indecis_bottom_right[0]][indecis_bottom_right[1]]
-
-
-        if debug_seasion:
-            assert (fov_weight * (v_bottom_left @ R1) / (v_bottom_left @R3 + self.base_T[0, 2]) - xs[indecis_bottom_left[0]][indecis_bottom_left[1]] ).abs() < 1e-5, "senaty test"
-            assert (fov_weight * (v_top_right @ R1) / (v_top_right @R3 + self.base_T[0, 2]) - xs[indecis_top_right[0]][indecis_top_right[1]] ).abs() < 1e-5, "senaty test"
-            assert (fov_weight * (v_top_left @ R1) / (v_top_left @R3 + self.base_T[0, 2]) - xs[indecis_top_left[0]][indecis_top_left[1]]).abs() < 1e-5, "senaty test"
-            assert (fov_weight * (v_bottom_right @ R1) / (v_bottom_right @R3 + self.base_T[0, 2]) - xs[indecis_bottom_right[0]][indecis_bottom_right[1]] ).abs() < 1e-5, "senaty test"
-
-
-            assert (fov_weight * (v_bottom_left @ R2) / (v_bottom_left @R3 + self.base_T[0, 2]) - ys[indecis_bottom_left[0]][indecis_bottom_left[1]] ).abs() < 1e-5, "senaty test"
-            assert (fov_weight * (v_top_right @ R2) / (v_top_right @R3 + self.base_T[0, 2]) - ys[indecis_top_right[0]][indecis_top_right[1]] ).abs() < 1e-5, "senaty test"
-            assert (fov_weight * (v_top_left @ R2) / (v_top_left @R3 + self.base_T[0, 2]) - ys[indecis_top_left[0]][indecis_top_left[1]]).abs() < 1e-5, "senaty test"
-            assert (fov_weight * (v_bottom_right @ R2) / (v_bottom_right @R3 + self.base_T[0, 2]) - ys[indecis_bottom_right[0]][indecis_bottom_right[1]] ).abs() < 1e-5, "senaty test"
-
-
-            print(f"bottom left - ({ys[indecis_bottom_left[0]][indecis_bottom_left[1]], xs[indecis_bottom_left[0]][indecis_bottom_left[1]]})")
-            print(f"top right - ({ys[indecis_top_right[0]][indecis_top_right[1]], xs[indecis_top_right[0]][indecis_top_right[1]]})")
-            print(f"top left - ({ys[indecis_top_left[0]][indecis_top_left[1]], xs[indecis_top_left[0]][indecis_top_left[1]]})")
-            print(f"bottom right - ({ys[indecis_bottom_right[0]][indecis_bottom_right[1]], xs[indecis_bottom_right[0]][indecis_bottom_right[1]]})")
-        return torch.stack([torch.tensor(pix_y), torch.tensor(pix_x)], axis=1), torch.stack([v_bottom_left, v_top_right, v_top_left, v_bottom_right], axis=0)
+        return torch.stack([torch.tensor(pix_y[:4]), torch.tensor(pix_x[:4])], axis=1), verts[:4]
 
     @staticmethod
     def calculate_distance(p1, p2):
@@ -303,34 +409,35 @@ class InjectedObject:
         return np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
     @staticmethod
-    def calculate_centered_square_bbox(corners, new_center = [451, 513]):
+    def calculate_centered_square_bbox(corners, new_center = [512, 512]):
         # Assuming corners are [(x1, y1), (x2, y2), (x3, y3), (x4, y4)]
         # Calculate diagonal lengths and then find the average to approximate the bbox size
         # Calculate the lengths of the sides of the rectangle
-        side1 = InjectedObject.calculate_distance(corners[0], corners[2])
-        side2 = InjectedObject.calculate_distance(corners[1], corners[2])
+        height = InjectedObject.calculate_distance(corners[0], corners[2])
+        width= InjectedObject.calculate_distance(corners[0], corners[1])
         
-        # Determine which is width and which is height by comparing the sides
-        width, height = (side1, side2) if side1 < side2 else (side2, side1)
         
         # Calculate the corners of the new rectangle bbox centered at the new_center
         half_width = width / 2
         half_height = height / 2
         rectangle_corners = [
-            [new_center[0] + half_width, new_center[1] - half_height],  # Top-right corner
-            [new_center[0] - half_width, new_center[1] + half_height],  # Bottom-left corner
-            [new_center[0] - half_width, new_center[1] - half_height],  # Top-eft corner 
-            [new_center[0] + half_width, new_center[1] + half_height],  # Bottom-right corner 
+            [new_center[0] + half_height, new_center[1] - half_width],  # bl
+            [new_center[0] + half_height, new_center[1] + half_width],  # br
+            [new_center[0] - half_height, new_center[1] - half_width],  # tl
+            [new_center[0] - half_height, new_center[1] + half_width],  # tr
 
         ]
         
         return torch.tensor(rectangle_corners)
 
 
-    @staticmethod
-    def get_R(angle):
-        rotation = RotateAxisAngle(angle=angle, axis="Z").get_matrix()
-        R = rotation[:, :3, :3]
+    def get_R(self, angle, rotation=None):
+        if angle != 0:
+            rotation = RotateAxisAngle(angle=angle, axis="Y").get_matrix()
+            R_final = torch.bmm(rotation[:, :3, :3], self.base_R)
+        else:
+            R_final = self.base_R
+        R = R_final[:, :3, :3]
         return R
 
 
@@ -342,22 +449,22 @@ class InjectedObject:
         
         """
 
-        dx_real  = top_left_real[1] - top_right_real[1]
-        dy_real = bottom_left_real[0] - top_left_real[0]
+        # dx_real  = top_left_real[1] - top_right_real[1]
+        # dy_real = bottom_left_real[0] - top_left_real[0]
 
-        dx_injected = top_left_injected[1] - top_right_injected[1]
-        dy_injected =  bottom_left_injected[0] - top_left_injected[0]
+        # dx_injected = top_left_injected[1] - top_right_injected[1]
+        # dy_injected =  bottom_left_injected[0] - top_left_injected[0]
 
-        x = torch.tensor([dx_real    , dy_real    , top_left_real[0]    , top_right_real[0]    , bottom_left_real[0]    , bottom_right_real[0]
-                          ,  top_left_real[1]    , top_right_real[1]    , bottom_left_real[1]    , bottom_right_real[1]]).reshape(-1)
+        # x = torch.tensor([dx_real    , dy_real    , top_left_real[0]    , top_right_real[0]    , bottom_left_real[0]    , bottom_right_real[0]
+        #                   ,  top_left_real[1]    , top_right_real[1]    , bottom_left_real[1]    , bottom_right_real[1]]).reshape(-1)
         
-        y = torch.tensor([dx_injected, dy_injected, top_left_injected[0], top_right_injected[0], bottom_left_injected[0], bottom_right_injected[0]
-                          ,  top_left_injected[1], top_right_injected[1], bottom_left_injected[1], bottom_right_injected[1]]).reshape(-1)
+        # y = torch.tensor([dx_injected, dy_injected, top_left_injected[0], top_right_injected[0], bottom_left_injected[0], bottom_right_injected[0]
+        #                   ,  top_left_injected[1], top_right_injected[1], bottom_left_injected[1], bottom_right_injected[1]]).reshape(-1)
         
 
-        x = torch.tensor([bottom_left_injected[0], bottom_left_injected[1], top_right_injected[0], top_right_injected[1], top_left_injected[0], top_left_injected[1], bottom_right_injected[0], bottom_right_injected[1]])
+        x = torch.tensor([bottom_left_injected[0], bottom_left_injected[1], bottom_right_injected[0], bottom_right_injected[1], top_left_injected[0], top_left_injected[1], top_right_injected[0], top_right_injected[1]])
 
-        y = torch.tensor([bottom_left_real[0], bottom_left_real[1], top_right_real[0], top_right_real[1], top_left_real[0], top_left_real[1], bottom_right_real[0], bottom_right_real[1]])
+        y = torch.tensor([bottom_left_real[0], bottom_left_real[1], bottom_right_real[0], bottom_right_real[1], top_left_real[0], top_left_real[1], top_right_real[0], top_right_real[1]])
         # return (x @ y) / (x @ x)
         return   y.to(torch.float32) / x.to(torch.float32) 
     
@@ -381,7 +488,7 @@ class InjectedObject:
 
         width, height = image_shape[1:]
 
-        xs = ((pixels_values[:, 1].to(torch.float64) * 2.) / width ) - 1
+        xs = 1 - ((pixels_values[:, 1].to(torch.float64) * 2.) / width )
         # xs = 1 - ((pixels_values[:, 1].to(torch.float64)   * 2.) / width)
         ys = 1 - ((pixels_values[:, 0].to(torch.float64)   * 2.) / height)
         # ys = ((pixels_values[:, 0].to(torch.float64) * 2.) / height ) - 1
@@ -390,7 +497,7 @@ class InjectedObject:
 
      
 
-    def find_T_Z(self, pixels_values, verts, R, image_shape):
+    def find_T_Z(self, pixels_values, verts, R, image_shape, angle=0):
         """
         this funciton assume T_X = T_Y = 0, 
         vertex to pixel equation -> 
@@ -415,9 +522,11 @@ class InjectedObject:
         fov = (self.camera.fov * np.pi) / 180 # angles to radins
         fov_weight = 1 / np.tan((fov / 2))
 
-        R1 = R[:3, 0][0]
-        R2 = R[:3, 1][0]
-        R3 = R[:3, 2][0]
+        R = self.get_R(angle, R)
+
+        R1 = R[0][:3, 0]
+        R2 = R[0][:3, 1]
+        R3 = R[0][:3, 2]
 
 
         xs, ys = self._center_pixels(pixels_values, image_shape)
@@ -452,9 +561,9 @@ class InjectedObject:
         fov = (self.camera.fov * np.pi) / 180 # angles to radins
         fov_weight = 1 / np.tan((fov / 2))
 
-        R1 = R[:3, 0][0]
-        R2 = R[:3, 1][0]
-        R3 = R[:3, 2][0]
+        R1 = R[0][:3, 0]
+        R2 = R[0][:3, 1]
+        R3 = R[0][:3, 2]
 
 
         xs, ys = self._center_pixels(pixels_values, image_shape)
@@ -464,58 +573,82 @@ class InjectedObject:
         V_R_3 = verts @ R3
 
         #TODO - why does T_Y needs the "-" sign?
-        T_X = -(((xs * (V_R_3 + T_Z)) / fov_weight) - V_R_1).mean()
+        T_X = (((xs * (V_R_3 + T_Z)) / fov_weight) - V_R_1).mean()
         T_Y = (((ys * (V_R_3 + T_Z)) / fov_weight) - V_R_2).mean()
 
         return T_X, T_Y
+    
+    @staticmethod
+    def rotate_pixels(pixels, theta, center=torch.tensor([512, 512])):
 
+        R = torch.tensor([
+            [torch.cos(theta), -torch.sin(theta)],
+            [torch.sin(theta), torch.cos(theta)],
+        ])
+        
+        pix = (pixels - center) @ R.to(torch.float32)
+        
+        # pix = pixels @ R.to(torch.float32)
+        return pix + center
+
+    @staticmethod
+    def get_center_translation(bbox_center, new_center=torch.tensor([512, 512])):
+        """
+        Adjust the center of a bounding box to a new center.
+
+        :param bbox_center: Tuple of (y, x) representing the current bbox center.
+        :param new_center: Tuple of (new_y, new_x), the desired new center.
+        :return: New center of the bbox as a tuple (new_y, new_x).
+        """
+        # Calculate the difference (offset) needed to move the bbox center
+        dy, dx = new_center[0] - bbox_center[0], new_center[1] - bbox_center[1]
+        return dy, dx
 
 
     def find_R_T_for_injection(self, top_left, top_right, bottom_left, bottom_right, image_shape):
 
         rendering_angle = find_angle_from_bbox(top_left, bottom_left, top_right, bottom_right, degrees=True)
         extreme_pixels, extreme_verts = self.get_extreme_pixels(rendering_angle, image_shape)
-        print()
-        # print(F"EXTREME VERTS ARE - {extreme_verts}")
-        print()
+
+
         R = self.get_R(rendering_angle)
-        
-        #bbox_aspect_ratio = float(top_right - top_left) / float(bottom_right - bottom_left) # Todo - should i use it?
-
-
-        #top_left_injected, top_right_injected, bottom_left_injected, bottom_right_injected
-
         # find T_z 
-        alpha = self.linear_alignment_of_bboxes(top_left_real=torch.tensor(top_left),
-                                                top_right_real=torch.tensor(top_right), 
-                                                bottom_left_real=torch.tensor(bottom_left),
-                                                bottom_right_real=torch.tensor(bottom_right),
+        alpha = self.linear_alignment_of_bboxes(top_left_real=top_left,
+                                                top_right_real=top_right, 
+                                                bottom_left_real=bottom_left,
+                                                bottom_right_real=bottom_right,
 
                                                 top_left_injected=extreme_pixels[2],
-                                                top_right_injected=extreme_pixels[1],
+                                                top_right_injected=extreme_pixels[3],
                                                 bottom_left_injected=extreme_pixels[0],
-                                                bottom_right_injected=extreme_pixels[3]) # todo - maybe it shouldn't be magic numbers?
+                                                bottom_right_injected=extreme_pixels[1]) # todo - maybe it shouldn't be magic numbers?
         
         new_pixels_values = (alpha * extreme_pixels.reshape(-1)).reshape(extreme_pixels.shape)
 
 
-        pix_for_T_Z = InjectedObject.calculate_centered_square_bbox(new_pixels_values)
+        rotated_pix = InjectedObject.rotate_pixels(new_pixels_values, (rendering_angle * np.pi) / 180, center=torch.tensor([512., 512.]))
+        center_x = rotated_pix[0, 1] + (rotated_pix[1, 1] - rotated_pix[0, 1]) / 2
+        center_y = rotated_pix[0, 0] + (rotated_pix[2, 0] - rotated_pix[0, 0]) / 2
+        bbox_center = torch.stack([center_y, center_x])
+        dy, dx = InjectedObject.get_center_translation(bbox_center=bbox_center, new_center=torch.tensor([512, 512]))
+        centerlized_pix = rotated_pix + torch.stack([dy, dx])
 
-        T_Z = self.find_T_Z(new_pixels_values, extreme_verts, R, image_shape)
-
-        # print(f"\tnormal t-z is {T_Z}")
 
 
+        # pix_for_T_Z = InjectedObject.calculate_centered_square_bbox(new_pixels_values, new_center=(512, 512))
 
-        T_Z = self.find_T_Z(pix_for_T_Z , extreme_verts, torch.eye(3)[None, :, :], [3, 1025, 902])
 
-        # print(f"\tnew pixels, new R, new center - {T_Z}")
+        # T_Z = self.find_T_Z(new_pixels_values , extreme_verts, torch.eye(3)[None, :, :], [3, 1024, 1024], angle=rendering_angle)
 
-        
+        # print(f"T_Z using rendering angle is - {T_Z}")
+
+        # T_Z = self.find_T_Z(pix_for_T_Z , extreme_verts, torch.eye(3)[None, :, :], [3, 1024, 1024])
+
+        T_Z = self.find_T_Z(centerlized_pix , extreme_verts, torch.eye(3)[None, :, :], [3, 1024, 1024])
 
         T_X, T_Y = self.find_T_X_T_Y(new_pixels_values, extreme_verts, R, image_shape, T_Z)
 
-        return R, torch.tensor([T_X, T_Y, T_Z]), extreme_pixels
+        return R, torch.tensor([[T_X, T_Y, T_Z]]), extreme_pixels
     
 
 def interpolate_line(img, start, end, color):
@@ -627,17 +760,19 @@ def test_injection():
 
     # define image
 
+    # R, T = look_at_view_transform(dist=70, elev=0, azim=180, up=((0, 0, 1),), at=((0, 0, 0),))
+
     R, T = look_at_view_transform(70, elev=0, azim=180) 
 
     
-    for angle in [5, 20, 45, 78, 0]:
+    for angle in [50, 0, 45, 78]:
         print(f"angle - {angle}")
         for T in [
-                  torch.tensor([[5., 5., 20.]]), torch.tensor([[5., 7., 40.]]), torch.tensor([[2., 3., 50.]]),
+                  torch.tensor([[5., 5., 50.]]), torch.tensor([[5., 7., 40.]]), torch.tensor([[2., 3., 50.]]),
                   torch.tensor([[5., -3., 20.]]), torch.tensor([[-5., -6., 40.]]), torch.tensor([[-2., 7., 50.]]),
                   ]:
 
-            rotation = RotateAxisAngle(angle=angle, axis="Z").get_matrix()
+            rotation = RotateAxisAngle(angle=angle, axis="Y").get_matrix()
             R = rotation[:, :3, :3]           
 
 
@@ -646,32 +781,9 @@ def test_injection():
 
 
 
-            # eps = kwargs.get("eps", None)
-            # verts_view = cameras.get_world_to_view_transform(**kwargs).transform_points(
-            #     verts_world, eps=eps
-            # )
-            # to_ndc_transform = cameras.get_ndc_camera_transform(**kwargs)
-            # projection_transform = try_get_projection_transform(cameras, kwargs)
-            # if projection_transform is not None:
-            #     projection_transform = projection_transform.compose(to_ndc_transform)
-            #     verts_ndc = projection_transform.transform_points(verts_view, eps=eps)
-            # else:
-            #     # Call transform_points instead of explicitly composing transforms to handle
-            #     # the case, where camera class does not have a projection matrix form.
-            #     verts_proj = cameras.transform_points(verts_world, eps=eps)
-            #     verts_ndc = to_ndc_transform.transform_points(verts_proj, eps=eps)
-
-            # verts_ndc[..., 2] = verts_view[..., 2]
-            # meshes_ndc = meshes_world.update_padded(new_verts_padded=verts_ndc)
-
-
-            # cameras = FoVPerspectiveCameras(device=device, R=R, T=T)
-
-
-
             R_T = cameras.get_world_to_view_transform().get_matrix()
 
-            r = RotateAxisAngle(angle= (angle), axis="Z").get_matrix()
+            r = RotateAxisAngle(angle= (angle), axis="Y").get_matrix()
             
 
             R_T [:, :3, :3] = r[:, :3, :3]
@@ -705,60 +817,33 @@ def test_injection():
 
             pix_for_T_Z = InjectedObject.calculate_centered_square_bbox(pixels_to_highlight)
 
-            # print(pixels_to_highlight)
+
+            
+            
 
             print(f"\treal T - {T}")
+            # tr, bl, br, tl
+            injection_object = InjectedObject(obj_filename, TZ_start=T[0, 2], T=T)
 
+            pixels_to_highlight, verts_ = injection_object.get_extreme_pixels(angle=angle, image_shape=(1024, 1024, 3))
 
-            #bottom_left, top_right, top_left, bottom_right
-            # R_new, T_new = injection_object.find_R_T_for_injection(bottom_left=pixels_to_highlight[0], top_right=pixels_to_highlight[1], top_left=pixels_to_highlight[2],
-            #                                                 bottom_right=pixels_to_highlight[3], image_shape=[3, 1024, 1024])
+            injection_object = InjectedObject(obj_filename)
+
+            R_new, T_new, extreme_pixels = injection_object.find_R_T_for_injection(bottom_left=pixels_to_highlight[0], top_right=pixels_to_highlight[3], top_left=pixels_to_highlight[2],
+                                                            bottom_right=pixels_to_highlight[1], image_shape=[3, 1024, 1024])
             
-            
-            
-            
 
-            # im_vis = visualize_verts_over_object(R_new, T_new[None, :], y_pixel_int, x_pixel_int, extreme_y=pix_y, extreme_x=pix_x, vis_verts=True)
+            image = injection_object.render_mesh(angle=angle, T_z=3, T=T_new, R=R_new)
+            image = (image * 255).numpy().astype(np.uint8)
 
-            # plt.imshow(im_vis)
-
-            #bottom_left, top_right, top_left, bottom_right
-            # RANDOM BBOX (284.0, 398.0), (265.0, 468.0)  (263.0, 399.0), (288.0, 468.0)
-            pixels_to_highlight = torch.tensor([[284.0, 398.0], [265.0, 468.0], [263.0, 399.0], [288.0, 468.0]])
-
-
-
-
-            corners = pixels_to_highlight
-
-            # Calculate the centroid of the rectangle
-            centroid = torch.mean(corners, axis=0)
-
-            # Define the scale factor (e.g., 1.1 for 10% larger)
-            scale_factor = 3
-
-            # Calculate the new corners
-            new_corners = np.empty_like(corners)
-            for i, corner in enumerate(corners):
-                vector_from_centroid = corner - centroid
-                scaled_vector = vector_from_centroid * scale_factor
-                new_corners[i] = centroid + scaled_vector
-
-            pixels_to_highlight = new_corners
-            R_new, T_new, extreme_pixels = injection_object.find_R_T_for_injection(bottom_left=pixels_to_highlight[0], top_right=pixels_to_highlight[1], top_left=pixels_to_highlight[2],
-                                                            bottom_right=pixels_to_highlight[3], image_shape=[3, 1024, 1024])
-            
+            draw_pixels(image, pixels_to_highlight[:, 0].numpy().astype(np.int32), pixels_to_highlight[:, 1].numpy().astype(np.int32), square_size=5, paint_color=np.array([255, 0, 0]).astype(np.uint8) )
 
             im_vis = visualize_verts_over_object(R_new, T_new[None, :], extreme_pixels[:, 0], extreme_pixels[:, 1], extreme_y=pixels_to_highlight[:, 0], extreme_x=pixels_to_highlight[:, 1], vis_verts=False)
 
-            plt.imshow(im_vis)
+            # plt.imshow(im_vis)
 
 
-
-
-
-
-            print(f"\tfound T - {T}")
+            print(f"\tfound T - {T_new}")
             print()
 
 
