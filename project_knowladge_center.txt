@@ -1,11 +1,11 @@
 
 
-files that needed change in order to change image sizes of training data - 
+files that needed change in order to change image sizes of training data -
 
 /app/tools/data/dota/split/split_configs/ss_trainval.json
 /app/tools/data/dota/split/split_configs/ss_test.json
 
-after changes been made we need to run 
+after changes been made we need to run
 
 python tools/data/dota/split/img_split.py --base-json \
   tools/data/dota/split/split_configs/ss_trainval.json
@@ -16,23 +16,89 @@ python tools/data/dota/split/img_split.py --base-json \
 from the docker shell when we are at app directory
 
 
-json fields 
+json fields
 sizes - images final size for rate = 1.0
-gap - the steps of sliding widnows
+gap - the steps of sliding windows
 rate - control in size, (rate = 0.5, size = 256) will result in (512, 512) images
 image_rate_thr - the minimal rate of image in window and window'
 iof_thr - the minimal iof between a object and a window
 
 
-there are config files in which we can config stuff like atch size etc' (lr is not defined there)- 
+there are config files in which we can config stuff like atch size etc' (lr is not defined there)-
 (for example)
 
 /app/configs/rotated_rtmdet/rotated_rtmdet_l-3x-dota.py
 
-another important config files can be found at  
+another important config files can be found at
 
 /app/configs/rotated_rtmdet/__base__
 
 from running "/app/configs/rotated_rtmdet/rotated_rtmdet_l-3x-dota.py" i see that these files metters (    cfg = Config.fromfile(args.config) -> Config._get_base_files(temp_config_file.name))
 ['./_base_/default_runtime.py', './_base_/schedule_3x.py', './_base_/dota_rr.py']
 
+
+'./_base_/schedule_3x.py' - defines optimizer and scheduler hyper params
+especially, val_interval which is asking on how many epochs should we validate the data set
+
+'./_base_/default_runtime.py' - defines hooks, including mmdet hooks
+especially, checkpoint=dict(type='CheckpointHook', interval=12, max_keep_ckpts=3) defines how many checkpoints to keep(3 at max), and on which timestamps
+
+
+'./_base_/dota_rr.py' - defines the pipes
+
+especially, the validation metrices defined at val_evaluator = dict(type='DOTAMetric', metric='mAP', iou_thrs=[0.1, 0.5, 0.8])
+
+full config file of the run can be found at -
+
+/app/work_dirs/rotated_rtmdet_l-3x-dota/rotated_rtmdet_l-3x-dota.py
+
+runner.py - is the place that takes configuration (as dict values) and build stuff from them
+runner also responsibale for the train. for the experiment_name etc'
+
+
+
+
+HOOKS -
+
+1. NumClassCheckHook - checks if number of heads aligned with number of classes in the dataset
+2. mmdet.ExpMomentumEMA - exponantial moving average at each training iteration ( iteration and not epoch)
+3. CheckpointHook - how many checkpoints to save and on which frequency
+4. LoggerHook - logging frequency, can be used to save to wandb and tensorboard
+5. ParamSchedulerHook - A hook to update some hyper-parameters in optimizer, e.g., learning rate
+    and momentum
+6. DistSamplerSeedHook - Data-loading sampler for distributed training
+  When distributed training, it is only useful in conjunction with
+    :obj:`EpochBasedRunner`, while :obj:`IterBasedRunner` achieves the same
+    purpose with :obj:`IterLoader`.
+7. IterTimerHook - A hook that logs the time spent during iteration
+8. mmdet.DetVisualizationHook - A hook used to visualize validation and testing process prediction results
+
+
+
+
+split dota dataset
+Please crop the original images into 1024×1024 patches with an overlap of 200 by run
+
+python tools/data/dota/split/img_split.py --base-json \
+  tools/data/dota/split/split_configs/ss_trainval.json
+
+python tools/data/dota/split/img_split.py --base-json \
+  tools/data/dota/split/split_configs/ss_test.json
+If you want to get a multiple scale dataset, you can run the following command.
+
+python tools/data/dota/split/img_split.py --base-json \
+  tools/data/dota/split/split_configs/ms_trainval.json
+
+python tools/data/dota/split/img_split.py --base-json \
+  tools/data/dota/split/split_configs/ms_test.json
+
+
+visualization commands -
+
+results over images -
+python tools/test.py /app/configs/rotated_rtmdet/rotated_rtmdet_l-3x-dota.py /app/work_dirs/rotated_rtmdet_l-3x-dota/epoch_200.pth --show-dir imgs/
+
+BEFORE DOING IT WE SHOULD CHANGE THE DATA_ROOT FIELD AT DOTA_RR.PY TO POINT ON THE DATA WE WANT TO VISUALIZE
+
+plots -
+python tools/analysis_tools/analyze_logs.py plot_curve /app/work_dirs/rotated_rtmdet_l-3x-dota/20240130_142520/vis_data/20240130_142520.json --keys loss_cls loss_bbox --legend loss_cls loss_bbox --out work_dirs/loss_curve.pdf
