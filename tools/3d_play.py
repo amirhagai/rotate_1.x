@@ -19,6 +19,7 @@ from pytorch3d.renderer import (
 
 from pytorch3d.transforms import RotateAxisAngle
 
+IMAGE_SIZE = 1024
 
 def draw_pixels(image, y_pixel_int, x_pixel_int, square_size, paint_color):
     pixels_to_highlight = np.stack((y_pixel_int, x_pixel_int), axis=1)
@@ -199,7 +200,7 @@ class InjectedObject:
         )
 
     def render_mesh(self, T_z, angle, T=None, R=None):
-
+        global IMAGE_SIZE
         R_, T_ = look_at_view_transform(
             T_z, elev=90, azim=0, up=((0, 0, 1),), at=((0, 0, 0),)
         )
@@ -215,7 +216,7 @@ class InjectedObject:
         cameras = FoVPerspectiveCameras(device=device, R=R, T=T)
 
         raster_settings = RasterizationSettings(
-            image_size=1024,
+            image_size=IMAGE_SIZE,
             blur_radius=0.0,
             faces_per_pixel=1,
             bin_size=0,
@@ -236,7 +237,7 @@ class InjectedObject:
         # plt.imshow(images[:, :, :, :3][0])
         return images[:, :, :, :3][0]
 
-    def get_extreme_pixels(self, angle, image_shape, width=1024, height=1024):
+    def get_extreme_pixels(self, angle, image_shape, width=IMAGE_SIZE, height=IMAGE_SIZE):
 
         """
         vertex to pixel equation ->
@@ -554,6 +555,7 @@ class InjectedObject:
     def find_R_T_for_injection(
         self, top_left, top_right, bottom_left, bottom_right, image_shape
     ):
+        global IMAGE_SIZE
 
         rendering_angle = find_angle_from_bbox(
             top_left, bottom_left, top_right, bottom_right, degrees=True
@@ -582,7 +584,7 @@ class InjectedObject:
         rotated_pix = InjectedObject.rotate_pixels(
             new_pixels_values,
             (rendering_angle * np.pi) / 180,
-            center=torch.tensor([512.0, 512.0]),
+            center=torch.tensor([IMAGE_SIZE / 2., IMAGE_SIZE / 2.]),
         )
         center_x = rotated_pix[0, 1] + (rotated_pix[1, 1] - rotated_pix[0, 1]) / 2
         center_y = rotated_pix[0, 0] + (rotated_pix[2, 0] - rotated_pix[0, 0]) / 2
@@ -596,7 +598,7 @@ class InjectedObject:
             centerlized_pix,
             extreme_verts,
             torch.eye(3)[None, :, :],
-            [3, 1024, 1024],
+            [3, IMAGE_SIZE, IMAGE_SIZE],
         )
 
         T_X, T_Y = self.find_T_X_T_Y(
@@ -608,6 +610,7 @@ class InjectedObject:
 
 def test_injection():
 
+    global IMAGE_SIZE
     app_path = Path(__file__).parent.parent
     dir_path = f"{app_path}/mmrotate/3Ddata/meshes"
 
@@ -660,7 +663,7 @@ def test_injection():
             vertex_ndc = vertex_clip[:, :2] / vertex_clip[:, 3:]
 
             # Step 4: Map NDC to screen coordinates, ndc range from (-1, 1)
-            width, height = 1024, 1024  # Example viewport dimensions
+            width, height = IMAGE_SIZE, IMAGE_SIZE  # Example viewport dimensions
             x_pixel = ((1 - vertex_ndc[:, 0]) / 2.0) * width
             y_pixel = ((1 - vertex_ndc[:, 1]) / 2.0) * height
 
@@ -684,7 +687,7 @@ def test_injection():
             injection_object = InjectedObject(obj_filename, TZ_start=T[0, 2], T=T)
 
             pixels_to_highlight, verts_ = injection_object.get_extreme_pixels(
-                angle=angle, image_shape=(1024, 1024, 3)
+                angle=angle, image_shape=(IMAGE_SIZE, IMAGE_SIZE, 3)
             )
 
             injection_object = InjectedObject(obj_filename)
@@ -698,7 +701,7 @@ def test_injection():
                 top_right=pixels_to_highlight[3],
                 top_left=pixels_to_highlight[2],
                 bottom_right=pixels_to_highlight[1],
-                image_shape=[3, 1024, 1024],
+                image_shape=[3, IMAGE_SIZE, IMAGE_SIZE],
             )
 
             image = injection_object.render_mesh(
