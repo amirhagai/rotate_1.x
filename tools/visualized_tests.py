@@ -1,11 +1,6 @@
 import os
-import sys
 import torch
 from pathlib import Path
-
-import os
-import torch
-import matplotlib.pyplot as plt
 from PIL import Image
 import numpy as np
 from pytorch3d.structures import Pointclouds
@@ -146,7 +141,8 @@ def render_points_only(points, cameras):
 
     """
     returns black image with the verts given in points render over it.
-    to save it as PIL image one should multiple the result by 255 and move it to uint8
+    to save it as PIL image one should multiple the result by 255 and move it
+    to uint8
     """
 
     global IMAGE_SIZE
@@ -159,7 +155,9 @@ def render_points_only(points, cameras):
 
     # Create the point cloud renderer
     renderer = PointsRenderer(
-        rasterizer=PointsRasterizer(cameras=cameras, raster_settings=raster_settings),
+        rasterizer=PointsRasterizer(
+            cameras=cameras, raster_settings=raster_settings
+        ),
         compositor=AlphaCompositor(),
     )
     # Render the point cloud
@@ -172,10 +170,13 @@ def render_mesh(mesh, angle):
 
     """
     returns white image with the mesh render over it using the given angle .
-    to save it as PIL image one should multiple the result by 255 and move it to uint8
+    to save it as PIL image one should multiple the result by 255 and move it
+    to uint8
     """
     global IMAGE_SIZE
-    R, T = look_at_view_transform(30, elev=90, azim=0, up=((0, 0, 1),), at=((0, 0, 0),))
+    R, T = look_at_view_transform(
+        30, elev=90, azim=0, up=((0, 0, 1),), at=((0, 0, 0),)
+    )
     rotate_transform = RotateAxisAngle(angle=angle, axis="Y")
     rotation_matrix = rotate_transform.get_matrix()
 
@@ -213,10 +214,15 @@ def find_closest(verts, x, y, z):
 def get_mesh_extreme_points_from_looking_above_view(mesh):
 
     """
-    the current code only supports looking above view! ( R, T = look_at_view_transform(something, elev=90, azim=0, up=((0, 0, 1),), at=((0, 0, 0),)) )
-    to extend this support one should decide how to use the full bounded rectangale and not only is top face as we did.
+    the current code only supports looking above view!
+    ( R, T = look_at_view_transform(something,
+    elev=90, azim=0, up=((0, 0, 1),), at=((0, 0, 0),)) )
+
+    to extend this support one should decide how to use the full
+    bounded rectangale and not only is top face as we did.
     the code assumes y axis is up.
-    the points which are given to find closest are the bounded rectangale of the mesh and can be used also without find closest.
+    the points which are given to find closest are the bounded
+    rectangale of the mesh and can be used also without find closest.
 
     """
 
@@ -309,7 +315,8 @@ def verts_to_ndc(verts, R_T, cameras):
 def pixels_to_image_coordinates(xs, ys):
 
     """
-    xs and ys are pixels coordinates at (-1, 1) scale and we move them to (IMAGE_SIZE, IMAGE_SIZE) ints to match the image size
+    xs and ys are pixels coordinates at (-1, 1) scale and we move them to
+    (IMAGE_SIZE, IMAGE_SIZE) ints to match the image size
     """
 
     width, height = IMAGE_SIZE, IMAGE_SIZE  # Example viewport dimensions
@@ -347,8 +354,8 @@ def test_formula(verts):
 def render_extreme_points(mesh, cameras, axis="Y", up_vec=((0, -1, 0),), angle=20):
 
     """
-    this function maps the relavent points from the 3D bounded rectangle to image space
-    and returns black image with the relevant points render over it
+    this function maps the relavent points from the 3D bounded rectangle to
+      image space and returns black image with the relevant points render over it
     """
     global IMAGE_SIZE
     square_size = 5
@@ -370,7 +377,12 @@ def render_extreme_points(mesh, cameras, axis="Y", up_vec=((0, -1, 0),), angle=2
     ) = get_mesh_extreme_points_from_looking_above_view(mesh)
 
     ver = torch.stack(
-        [x_max_y_max_z_min, x_min_y_max_z_min, x_max_y_max_z_max, x_min_y_max_z_max],
+        [
+            x_max_y_max_z_min,
+            x_min_y_max_z_min,
+            x_max_y_max_z_max,
+            x_min_y_max_z_max,
+        ],
         dim=0,
     )
 
@@ -436,9 +448,8 @@ if __name__ == "__main__":
 
     for angle in [0, 20, 45]:
 
-        folder_path = (
-            f"{app_path}/data/test_injected/trainval/images/{angle}_up_{UP}_axis_{AXIS}"
-        )
+        folder_path = f"{app_path}/data/test_injected/trainval/images/{angle}\
+            _up_{UP}_axis_{AXIS}"
         os.makedirs(folder_path, exist_ok=True)
         print(f"angle is - {angle}", end="\n\n")
 
@@ -471,7 +482,9 @@ if __name__ == "__main__":
 
         square_size = 5  # This will create a 5x5 square
 
-        image_for_my_projection = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3)).astype(np.uint8)
+        image_for_my_projection = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3)).astype(
+            np.uint8
+        )
         paint_color = np.array([255, 0, 0])  # Red
 
         for y, x in pixels_to_highlight:
@@ -488,7 +501,9 @@ if __name__ == "__main__":
             f"{folder_path}/hand_craft_extreme_point.png"
         )
 
-        image_for_my_projection = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3)).astype(np.uint8)
+        image_for_my_projection = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3)).astype(
+            np.uint8
+        )
         image_for_my_projection[y_pixel_int, x_pixel_int] = paint_color
         Image.fromarray((image_for_my_projection).astype(np.uint8)).save(
             f"{folder_path}/my_projection.png"
@@ -538,5 +553,6 @@ if __name__ == "__main__":
         ).save(f"{folder_path}/my_proj_over_camera_proj.png")
 
         print(
-            f"done {angle}, visualizations can be found at - {folder_path}", end="\n\n"
+            f"done {angle}, visualizations can be found at - {folder_path}",
+            end="\n\n",
         )
