@@ -7,9 +7,8 @@ import torch
 from PIL import Image
 # Util function for loading meshes
 from pytorch3d.io import load_objs_as_meshes
-from pytorch3d.renderer import (FoVPerspectiveCameras, MeshRasterizer,
-                                MeshRenderer, PointLights,
-                                RasterizationSettings, SoftPhongShader,
+from pytorch3d.renderer import (FoVPerspectiveCameras, MeshRasterizer, MeshRenderer,
+                                PointLights, RasterizationSettings, SoftPhongShader,
                                 look_at_view_transform)
 from pytorch3d.transforms import RotateAxisAngle
 
@@ -51,7 +50,6 @@ def find_angle_from_bbox(top_left,
     return -angle_degrees
 
 
-
 class InjectedObject:
 
     def __init__(self, obj_file_path, TZ_start=70, T=None) -> None:
@@ -70,15 +68,20 @@ class InjectedObject:
         self.azim = 0
         self.up = ((0, 0, 1), )
         self.axis = ((0, 0, 0), )
-        self.rotation_axis = "Y"
+        self.rotation_axis = 'Y'
 
         self.base_R, self.base_T = look_at_view_transform(
-            self.TZ_start, elev=self.elev, azim=self.azim, up=self.up, at=self.at)
+            self.TZ_start,
+            elev=self.elev,
+            azim=self.azim,
+            up=self.up,
+            at=self.at)
 
         if T is not None:
             self.base_T = T
 
-        self.base_R, self.base_R = self.base_R.to(device), self.base_R.to(device)
+        self.base_R, self.base_R = self.base_R.to(device), self.base_R.to(
+            device)
 
         self.camera = FoVPerspectiveCameras(
             device=device, R=self.base_R, T=self.base_T)
@@ -139,7 +142,8 @@ class InjectedObject:
         global IMAGE_SIZE
         R_, T_ = look_at_view_transform(
             T_z, elev=self.elev, azim=self.azim, up=self.up, at=self.at)
-        rotate_transform = RotateAxisAngle(angle=angle, axis=self.rotation_axis)
+        rotate_transform = RotateAxisAngle(
+            angle=angle, axis=self.rotation_axis)
         rotation_matrix = rotate_transform.get_matrix()
         R_ = torch.bmm(rotation_matrix[:, :3, :3], R_)
 
@@ -282,7 +286,8 @@ class InjectedObject:
 
     def get_R(self, angle, rotation=None):
         if angle != 0:
-            rotation = RotateAxisAngle(angle=angle, axis=self.rotation_axis).get_matrix()
+            rotation = RotateAxisAngle(
+                angle=angle, axis=self.rotation_axis).get_matrix()
             R_final = torch.bmm(rotation[:, :3, :3].to(device), self.base_R)
         else:
             R_final = self.base_R
@@ -416,7 +421,6 @@ class InjectedObject:
 
         xs, ys = self._center_pixels(pixels_values, image_shape)
 
-
         T_Z_X = ((fov_weight * V_R_1 / xs) - V_R_3).mean()
         T_Z_Y = ((fov_weight * V_R_2 / ys) - V_R_3).mean()
 
@@ -548,7 +552,6 @@ def test_injection(obj_filename, app_path):
                 torch.tensor([[0.0, 0.0, 30.0]]),
         ]:
 
-
             print(f'\treal T - {T}')
             # tr, bl, br, tl
             injection_object = InjectedObject(
@@ -591,7 +594,6 @@ def test_injection(obj_filename, app_path):
             print()
 
         print()
-
 
 
 if __name__ == '__main__':
