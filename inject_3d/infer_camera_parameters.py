@@ -67,7 +67,7 @@ class InjectedObject:
         self.elev = 90
         self.azim = 0
         self.up = ((0, 0, 1), )
-        self.axis = ((0, 0, 0), )
+        self.at = ((0, 0, 0), )
         self.rotation_axis = 'Y'
 
         self.base_R, self.base_T = look_at_view_transform(
