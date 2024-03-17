@@ -86,6 +86,12 @@ class InjectedObject:
         self.camera = FoVPerspectiveCameras(
             device=device, R=self.base_R, T=self.base_T)
 
+        self.f2 = (self.camera.zfar * self.camera.znear) / \
+            (self.camera.zfar - self.camera.znear)
+
+        fov = (self.camera.fov * np.pi) / 180  # angles to radins
+        self.fov_weight = 1 / torch.tan((fov / 2))
+
     def find_closest(self, x, y, z):
         verts = self.verts
         recived_tensor = torch.tensor([x, y, z], device=verts.device)
@@ -228,16 +234,13 @@ class InjectedObject:
         R = self.get_R(angle)
         R = R.to(device)
 
-        fov = (self.camera.fov * np.pi) / 180  # angles to radins
-        fov_weight = 1 / torch.tan((fov / 2))
-
         V_R_1, V_R_2, V_R_3 = self._get_rotated_verts(verts, R)
 
         # here we do have T
-        xs = fov_weight * (V_R_1 + self.base_T[0, 0]) / (
-            V_R_3 + self.base_T[0, 2])
-        ys = fov_weight * (V_R_2 + self.base_T[0, 1]) / (
-            V_R_3 + self.base_T[0, 2])
+        xs = self.fov_weight * (V_R_1 + self.base_T[0, 0]) / ((
+            V_R_3 + self.base_T[0, 2]) * self.f2)
+        ys = self.fov_weight * (V_R_2 + self.base_T[0, 1]) / ((
+            V_R_3 + self.base_T[0, 2]) * self.f2)
 
         x_pixel = ((1 - xs) / 2.0) * width
         y_pixel = ((1 - ys) / 2.0) * height
@@ -394,26 +397,23 @@ class InjectedObject:
         """
         this function assume T_X = T_Y = 0,
         vertex to pixel equation ->
-        xs = fov_weight * (V @ R1 + T_X) / (verts @ R3 + T_Z)
-        xy = fov_weight * (V @ R2 + T_Y) / (verts @ R3 + T_Z)
+        xs = fov_weight * (V @ R1 + T_X) / f2 *(verts @ R3 + T_Z)
+        xy = fov_weight * (V @ R2 + T_Y) / f2 * (verts @ R3 + T_Z)
         for the time being T_X = 0, T_Y = 0 T_Z is our variable
         so we want to solve
 
-        xs = fov_weight * (V @ R1 ) / (verts @ R3 + T_Z)
-        xy = fov_weight * (V @ R2 ) / (verts @ R3 + T_Z)
+        xs = fov_weight * (V @ R1 + T_X) / f2 *(verts @ R3 + T_Z)
+        xy = fov_weight * (V @ R2 + T_Y) / f2 * (verts @ R3 + T_Z)
 
         where T_Z is our variable
 
         so the solution is
 
-        T_Z = (fov_weight * (V @ R1 ) - (verts @ R3)) / xs
+        T_Z = (fov_weight * (V @ R1 )) / f2 * xs - (verts @ R3)
 
         xs, ys assume to be centerlized and in the range of (-1, 1)
 
         """
-
-        fov = (self.camera.fov * np.pi) / 180  # angles to radins
-        fov_weight = 1 / torch.tan((fov / 2))
 
         R = self.get_R(angle, R)
 
@@ -421,34 +421,32 @@ class InjectedObject:
 
         xs, ys = self._center_pixels(pixels_values, image_shape)
 
-        T_Z_X = ((fov_weight * V_R_1 / xs) - V_R_3).mean()
-        T_Z_Y = ((fov_weight * V_R_2 / ys) - V_R_3).mean()
+        T_Z_X = ((self.fov_weight * V_R_1 / (self.f2 * xs)) - V_R_3).mean()
+        T_Z_Y = ((self.fov_weight * V_R_2 / (self.f2 * ys)) - V_R_3).mean()
 
         return (T_Z_X + T_Z_Y) / 2.0
 
     def find_T_X_T_Y(self, pixels_values, verts, R, image_shape, T_Z):
         """vertex to pixel equation ->
 
-        xs = fov_weight * (V @ R1 + T_X) / (verts @ R3 + T_Z)
-        xy = fov_weight * (V @ R2 + T_Y) / (verts @ R3 + T_Z)
+        xs = fov_weight * (V @ R1 + T_X) / f2 * (verts @ R3 + T_Z)
+        xy = fov_weight * (V @ R2 + T_Y) / f2 * (verts @ R3 + T_Z)
 
         so
 
-        T_X = ((xs * (verts @ R3 + T_Z)) /  fov_weight) - V @ R1
-        T_Y = ((ys * (verts @ R3 + T_Z)) /  fov_weight) - V @ R2
+        T_X = ((f2 * xs * (verts @ R3 + T_Z)) /  fov_weight) - V @ R1
+        T_Y = ((f2 * ys * (verts @ R3 + T_Z)) /  fov_weight) - V @ R2
         """
 
         # TODO - FIX CODE DUPLICATION
-        fov = (self.camera.fov * np.pi) / 180  # angles to radins
-        fov_weight = 1 / torch.tan((fov / 2))
 
         V_R_1, V_R_2, V_R_3 = self._get_rotated_verts(verts, R)
 
         xs, ys = self._center_pixels(pixels_values, image_shape)
 
         # TODO - why does T_Y needs the "-" sign?
-        T_X = (((xs * (V_R_3 + T_Z)) / fov_weight) - V_R_1).mean()
-        T_Y = (((ys * (V_R_3 + T_Z)) / fov_weight) - V_R_2).mean()
+        T_X = (((self.f2 * xs * (V_R_3 + T_Z)) / self.fov_weight) - V_R_1).mean()
+        T_Y = (((self.f2 * ys * (V_R_3 + T_Z)) / self.fov_weight) - V_R_2).mean()
 
         return T_X, T_Y
 
