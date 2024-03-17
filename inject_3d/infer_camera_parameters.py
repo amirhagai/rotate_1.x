@@ -207,10 +207,10 @@ class InjectedObject:
         """
 
         (
-            x_max_y_max_z_min,
-            x_min_y_max_z_min,
-            x_max_y_max_z_max,
-            x_min_y_max_z_max,
+            x_max_y_max_z_min, # bl
+            x_min_y_max_z_min, # br
+            x_max_y_max_z_max, # tl
+            x_min_y_max_z_max, # tr
             x_max_y_min_z_max,
             x_min_y_min_z_max,
             x_max_y_min_z_min,
@@ -219,10 +219,10 @@ class InjectedObject:
 
         verts = torch.stack(
             [
-                x_max_y_max_z_min,
-                x_min_y_max_z_min,
-                x_max_y_max_z_max,
-                x_min_y_max_z_max,
+                x_max_y_max_z_min, # bl
+                x_min_y_max_z_min, # br
+                x_max_y_max_z_max, # tl
+                x_min_y_max_z_max, # tr
                 x_max_y_min_z_max,
                 x_min_y_min_z_max,
                 x_max_y_min_z_min,
@@ -245,9 +245,9 @@ class InjectedObject:
         x_pixel = ((1 - xs) / 2.0) * width
         y_pixel = ((1 - ys) / 2.0) * height
 
-        x_pixel_int = np.clip(x_pixel.cpu().numpy().round().astype(int), 0,
+        x_pixel_int = np.clip(x_pixel.cpu().numpy(), 0,
                               width - 1)
-        y_pixel_int = np.clip(y_pixel.cpu().numpy().round().astype(int), 0,
+        y_pixel_int = np.clip(y_pixel.cpu().numpy(), 0,
                               height - 1)
 
         pix_x = x_pixel_int
