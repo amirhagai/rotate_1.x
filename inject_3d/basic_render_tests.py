@@ -5,13 +5,22 @@ from pathlib import Path
 import numpy as np
 import torch
 from PIL import Image
+
 # Util function for loading meshes
 from pytorch3d.io import load_objs_as_meshes  # , load_obj
-from pytorch3d.renderer import (AlphaCompositor, FoVPerspectiveCameras,
-                                MeshRasterizer, MeshRenderer, PointLights,
-                                PointsRasterizationSettings, PointsRasterizer,
-                                PointsRenderer, RasterizationSettings,
-                                SoftPhongShader, look_at_view_transform)
+from pytorch3d.renderer import (
+    AlphaCompositor,
+    FoVPerspectiveCameras,
+    MeshRasterizer,
+    MeshRenderer,
+    PointLights,
+    PointsRasterizationSettings,
+    PointsRasterizer,
+    PointsRenderer,
+    RasterizationSettings,
+    SoftPhongShader,
+    look_at_view_transform,
+)
 from pytorch3d.structures import Pointclouds
 from pytorch3d.transforms import RotateAxisAngle
 
@@ -62,13 +71,9 @@ def draw_bbox(img, corners, color=(255, 0, 0)):
         interpolate_line(img, start, end, color)
 
 
-def visualize_verts_over_object(R,
-                                T,
-                                y_pixel_int,
-                                x_pixel_int,
-                                extreme_y,
-                                extreme_x,
-                                vis_verts=True):
+def visualize_verts_over_object(
+    R, T, y_pixel_int, x_pixel_int, extreme_y, extreme_x, vis_verts=True
+):
     cameras = FoVPerspectiveCameras(device=device, R=R, T=T)
 
     # Lighting
@@ -83,8 +88,7 @@ def visualize_verts_over_object(R,
 
     # Renderer
     renderer = MeshRenderer(
-        rasterizer=MeshRasterizer(
-            cameras=cameras, raster_settings=raster_settings),
+        rasterizer=MeshRasterizer(cameras=cameras, raster_settings=raster_settings),
         shader=SoftPhongShader(device=device, cameras=cameras, lights=lights),
     )
 
@@ -151,7 +155,8 @@ def render_points_only(points, cameras):
     # Create the point cloud renderer
     renderer = PointsRenderer(
         rasterizer=PointsRasterizer(
-            cameras=cameras, raster_settings=raster_settings),
+            cameras=cameras, raster_settings=raster_settings
+        ),
         compositor=AlphaCompositor(),
     )
     # Render the point cloud
@@ -168,7 +173,8 @@ def render_mesh(mesh, angle):
     """
     global IMAGE_SIZE
     R, T = look_at_view_transform(
-        30, elev=90, azim=0, up=((0, 0, 1), ), at=((0, 0, 0), ))
+        30, elev=90, azim=0, up=((0, 0, 1),), at=((0, 0, 0),)
+    )
     rotate_transform = RotateAxisAngle(angle=angle, axis='Y')
     rotation_matrix = rotate_transform.get_matrix()
 
@@ -186,8 +192,7 @@ def render_mesh(mesh, angle):
     lights = PointLights(device=device, location=[[0.0, 0.0, -3.0]])
 
     renderer = MeshRenderer(
-        rasterizer=MeshRasterizer(
-            cameras=cameras, raster_settings=raster_settings),
+        rasterizer=MeshRasterizer(cameras=cameras, raster_settings=raster_settings),
         shader=SoftPhongShader(device=device, cameras=cameras, lights=lights),
     )
 
@@ -248,8 +253,8 @@ def get_mesh_extreme_points_from_looking_above_view(mesh):
 
 def _view_definitions():
     AXIS = 'Y'
-    UP = ((0, 0, 1), )
-    AT = ((0, 0, 0), )
+    UP = ((0, 0, 1),)
+    AT = ((0, 0, 0),)
     ELEV = 90
     AZIM = 0
     T_Z = 30
@@ -273,7 +278,8 @@ def _define_verts_ndc(verts, R, T, angle):
     P = cameras.get_projection_transform().get_matrix()
 
     vertex = torch.concatenate(
-        [verts, torch.ones((len(verts), 1), device=verts.device)], dim=1)
+        [verts, torch.ones((len(verts), 1), device=verts.device)], dim=1
+    )
     vertex_clip = (vertex @ R_T[0]) @ P[0]
     vertex_ndc = vertex_clip[:, :3] / vertex_clip[:, 3:]
 
@@ -307,10 +313,8 @@ def pixels_to_image_coordinates(xs, ys):
     x_pixel = ((1 - xs) / 2.0) * width
     y_pixel = ((1 - ys) / 2.0) * height
 
-    x_pixel_int = np.clip(x_pixel.cpu().numpy().round().astype(int), 0,
-                          width - 1)
-    y_pixel_int = np.clip(y_pixel.cpu().numpy().round().astype(int), 0,
-                          height - 1)
+    x_pixel_int = np.clip(x_pixel.cpu().numpy().round().astype(int), 0, width - 1)
+    y_pixel_int = np.clip(y_pixel.cpu().numpy().round().astype(int), 0, height - 1)
     return x_pixel_int, y_pixel_int
 
 
@@ -334,11 +338,7 @@ def test_formula(verts):
     print('test formula is done')
 
 
-def render_extreme_points(mesh,
-                          cameras,
-                          axis='Y',
-                          up_vec=((0, -1, 0), ),
-                          angle=20):
+def render_extreme_points(mesh, cameras, axis='Y', up_vec=((0, -1, 0),), angle=20):
     """this function maps the relevant points from the 3D bounded rectangle to
     image space and returns black image with the relevant points render over
     it."""
@@ -454,48 +454,54 @@ if __name__ == '__main__':
         P = cameras.get_projection_transform().get_matrix()
 
         vertex = torch.concatenate(
-            [verts, torch.ones((len(verts), 1), device=verts.device)], dim=1)
+            [verts, torch.ones((len(verts), 1), device=verts.device)], dim=1
+        )
 
         points_render_image, pixels_to_highlight = render_extreme_points(
-            mesh=mesh, cameras=cameras, axis=AXIS, up_vec=UP, angle=angle)
+            mesh=mesh, cameras=cameras, axis=AXIS, up_vec=UP, angle=angle
+        )
 
         vertex_clip = (vertex @ R_T[0]) @ P[0]
         vertex_ndc = vertex_clip[:, :3] / vertex_clip[:, 3:]
 
         x_pixel_int, y_pixel_int = pixels_to_image_coordinates(
-            xs=vertex_ndc[:, 0], ys=vertex_ndc[:, 1])
+            xs=vertex_ndc[:, 0], ys=vertex_ndc[:, 1]
+        )
 
         square_size = 5  # This will create a 5x5 square
 
-        image_for_my_projection = np.zeros(
-            (IMAGE_SIZE, IMAGE_SIZE, 3)).astype(np.uint8)
+        image_for_my_projection = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3)).astype(
+            np.uint8
+        )
         paint_color = np.array([255, 0, 0])  # Red
 
         for y, x in pixels_to_highlight:
             # Ensure the square stays within image bounds
             x_start = max(0, x - square_size // 2)
             y_start = max(0, y - square_size // 2)
-            x_end = min(image_for_my_projection.shape[1],
-                        x + square_size // 2 + 1)
-            y_end = min(image_for_my_projection.shape[0],
-                        y + square_size // 2 + 1)
+            x_end = min(image_for_my_projection.shape[1], x + square_size // 2 + 1)
+            y_end = min(image_for_my_projection.shape[0], y + square_size // 2 + 1)
 
             # Paint the square around each pixel
             image_for_my_projection[y_start:y_end, x_start:x_end] = paint_color
 
-        Image.fromarray((image_for_my_projection).astype(
-            np.uint8)).save(f'{folder_path}/hand_craft_extreme_point.png')
+        Image.fromarray((image_for_my_projection).astype(np.uint8)).save(
+            f'{folder_path}/hand_craft_extreme_point.png'
+        )
 
-        image_for_my_projection = np.zeros(
-            (IMAGE_SIZE, IMAGE_SIZE, 3)).astype(np.uint8)
+        image_for_my_projection = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3)).astype(
+            np.uint8
+        )
         image_for_my_projection[y_pixel_int, x_pixel_int] = paint_color
-        Image.fromarray((image_for_my_projection).astype(
-            np.uint8)).save(f'{folder_path}/my_projection.png')
+        Image.fromarray((image_for_my_projection).astype(np.uint8)).save(
+            f'{folder_path}/my_projection.png'
+        )
 
-        image_for_my_projection[pixels_to_highlight[:, 0],
-                                pixels_to_highlight[:,
-                                                    1]] = np.array([0, 0, 255
-                                                                    ])  # Blue
+        image_for_my_projection[
+            pixels_to_highlight[:, 0], pixels_to_highlight[:, 1]
+        ] = np.array(
+            [0, 0, 255]
+        )  # Blue
 
         torch_points_render_image = render_points_only(points, cameras)
 
@@ -506,26 +512,33 @@ if __name__ == '__main__':
 
         images = render_mesh(mesh=mesh, angle=angle)
         mask = (images == 1).astype(np.float32)
-        end_im = (((1 - mask) * images + mask * im_for_rand) * 255).astype(
-            np.uint8)
+        end_im = (((1 - mask) * images + mask * im_for_rand) * 255).astype(np.uint8)
 
         print(f'start saving images, angle - {angle}')
-        Image.fromarray((points_render_image * 255).astype(
-            np.uint8)).save(f'{folder_path}/experiment_{AXIS}.png')
+        Image.fromarray((points_render_image * 255).astype(np.uint8)).save(
+            f'{folder_path}/experiment_{AXIS}.png'
+        )
         Image.fromarray(end_im).save(f'{folder_path}/pres_dota.png')
-        Image.fromarray((torch_points_render_image * 255).astype(
-            np.uint8)).save(f'{folder_path}/point_cloud_theirs.png')
+        Image.fromarray((torch_points_render_image * 255).astype(np.uint8)).save(
+            f'{folder_path}/point_cloud_theirs.png'
+        )
         Image.fromarray(
-            (0.5 * (torch_points_render_image * 255) +
-             0.5 * end_im.astype(np.float32)).astype(
-                 np.uint8)).save(f'{folder_path}/theirs_over_obj.png')
-        Image.fromarray((0.5 * image_for_my_projection +
-                         0.5 * end_im.astype(np.float32)).astype(
-                             np.uint8)).save(f'{folder_path}/my_over-obj.png')
+            (
+                0.5 * (torch_points_render_image * 255)
+                + 0.5 * end_im.astype(np.float32)
+            ).astype(np.uint8)
+        ).save(f'{folder_path}/theirs_over_obj.png')
         Image.fromarray(
-            (0.5 * (torch_points_render_image * 255) +
-             0.5 * image_for_my_projection.astype(np.float32)).astype(
-                 np.uint8)).save(f'{folder_path}/my_proj_over_camera_proj.png')
+            (0.5 * image_for_my_projection + 0.5 * end_im.astype(np.float32)).astype(
+                np.uint8
+            )
+        ).save(f'{folder_path}/my_over-obj.png')
+        Image.fromarray(
+            (
+                0.5 * (torch_points_render_image * 255)
+                + 0.5 * image_for_my_projection.astype(np.float32)
+            ).astype(np.uint8)
+        ).save(f'{folder_path}/my_proj_over_camera_proj.png')
 
         print(
             f'done {angle}, visualizations can be found at - {folder_path}',
