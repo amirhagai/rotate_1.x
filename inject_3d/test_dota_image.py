@@ -10,25 +10,25 @@ import matplotlib.animation as animation
 import cv2
 import os
 
-folder_path = "/app/data/test_injected/trainval/annfiles/"
-file_name = "P0005__1024__0___0.txt"
+folder_path = '/app/data/test_injected/trainval/annfiles/'
+file_name = 'P0005__1024__0___0.txt'
 
 bboxes = parse_one_file(folder_path=folder_path, file_name=file_name)
 
 app_path = Path(__file__).parent.parent
-DATA_DIR = f"{app_path}/mmrotate/3Ddata/"
-obj_filename = os.path.join(DATA_DIR, "meshes/Container.obj")
+DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
+obj_filename = os.path.join(DATA_DIR, 'meshes/Container.obj')
 
 injection = InjectedObject(obj_filename)
 
-images_path = "/app/data/test_injected/trainval/images/finals"
+images_path = '/app/data/test_injected/trainval/images/finals'
 os.makedirs(images_path, exist_ok=True)
 
-gif_images_path = f"{images_path}/gif_images"
+gif_images_path = f'{images_path}/gif_images'
 os.makedirs(gif_images_path, exist_ok=True)
 
 
-debug_path = f"{images_path}/debug"
+debug_path = f'{images_path}/debug'
 os.makedirs(debug_path, exist_ok=True)
 
 images = []
@@ -40,7 +40,7 @@ def create_gif(image_folder, int_comp=False):
 
     # Directory containing images
     # image_folder = f'{app_path}/data/test_injected/trainval/images/final_bbox'
-    images = [img for img in os.listdir(image_folder) if img.endswith(".png")]
+    images = [img for img in os.listdir(image_folder) if img.endswith('.png')]
 
     if int_comp:
 
@@ -56,7 +56,7 @@ def create_gif(image_folder, int_comp=False):
 
     # Create a figure and axis to display the images
     fig, ax = plt.subplots(figsize=(10, 8))
-    img_plot = ax.imshow(first_image, aspect="equal")
+    img_plot = ax.imshow(first_image, aspect='equal')
 
     # Function to update the figure with a new image
     def update(frame_id):
@@ -68,7 +68,7 @@ def create_gif(image_folder, int_comp=False):
     ani = animation.FuncAnimation(fig, update, frames=len(images), blit=True)
 
     # Save the animation
-    ani.save(f"{image_folder}/movie.gif", writer="pillow", fps=2)
+    ani.save(f'{image_folder}/movie.gif', writer='pillow', fps=2)
 
     plt.close(fig)
 
@@ -105,8 +105,7 @@ def sort_bbox(bbox):
 
 
 def get_pixels_in_oriented_bbox(corners, image_shape):
-    """
-    Get all pixels inside an oriented bounding box using OpenCV.
+    """Get all pixels inside an oriented bounding box using OpenCV.
 
     :param corners: Four corners of the OBB as a list of (x, y) tuples.
     :param image_shape: Shape of the image or matrix (height, width).
@@ -189,9 +188,9 @@ for i in tqdm(range(len(bboxes))):
 # Image.fromarray(im).save(f"{images_path}/test_bbox_oriantation.png")
 
 dota_np = np.array(
-    Image.open("/app/data/test_injected/trainval/images/P0005__1024__0___0.png")
+    Image.open('/app/data/test_injected/trainval/images/P0005__1024__0___0.png')
 )
-Image.fromarray(dota_np).save(f"{gif_images_path}/0.png")
+Image.fromarray(dota_np).save(f'{gif_images_path}/0.png')
 
 jackards = np.array(jackards)
 sorted_jackards_indecis = np.argsort(jackards)
@@ -205,7 +204,7 @@ create_gif(gif_images_path, int_comp=True)
 end.record()
 
 dota_np = np.array(
-    Image.open("/app/data/test_injected/trainval/images/P0005__1024__0___0.png")
+    Image.open('/app/data/test_injected/trainval/images/P0005__1024__0___0.png')
 )
 
 for i in range(len(masks)):
@@ -213,10 +212,10 @@ for i in range(len(masks)):
         masks[i][:, :, None] * 255
     )
 
-Image.fromarray(dota_np).save(f"{gif_images_path}/basic.png")
+Image.fromarray(dota_np).save(f'{gif_images_path}/basic.png')
 
 # Waits for everything to finish running
 torch.cuda.synchronize()
 
 
-print(f"elapsed time in seconds - {start.elapsed_time(end) / 1000}")
+print(f'elapsed time in seconds - {start.elapsed_time(end) / 1000}')

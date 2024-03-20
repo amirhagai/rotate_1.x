@@ -14,11 +14,11 @@ def test_injection_sanity_check(obj_filename, app_path):
 
     global IMAGE_SIZE
 
-    path = f"{app_path}/data/test_injected/trainval/images/sanity_check"
+    path = f'{app_path}/data/test_injected/trainval/images/sanity_check'
     os.makedirs(path, exist_ok=True)
 
     for angle in [0, 20, 50, 45, 78][::-1]:
-        print(f"angle - {angle}")
+        print(f'angle - {angle}')
         for i, T in enumerate(
             [
                 torch.tensor([[5.0, 5.0, 50.0]]),
@@ -33,7 +33,7 @@ def test_injection_sanity_check(obj_filename, app_path):
             ]
         ):
 
-            print(f"\treal T - {T}")
+            print(f'\treal T - {T}')
             # tr, bl, br, tl
             injection_object = InjectedObject(obj_filename, TZ_start=T[0, 2], T=T)
 
@@ -68,7 +68,7 @@ def test_injection_sanity_check(obj_filename, app_path):
                 paint_color=np.array([255, 0, 0]).astype(np.uint8),
             )
 
-            Image.fromarray(image).save(f"{path}/T_{i}_angle_{angle}.png")
+            Image.fromarray(image).save(f'{path}/T_{i}_angle_{angle}.png')
 
             image2, seg = injection_object(
                 bottom_left=pixels_to_highlight[0],
@@ -83,8 +83,8 @@ def test_injection_sanity_check(obj_filename, app_path):
             im = np.abs(
                 (image2.astype(np.float32) - image.astype(np.float32))
             ).astype(np.uint8)
-            Image.fromarray(im).save(f"{path}/sub_T_{i}_angle_{angle}.png")
-            print(f"\tfound T - {T_new}")
+            Image.fromarray(im).save(f'{path}/sub_T_{i}_angle_{angle}.png')
+            print(f'\tfound T - {T_new}')
             print()
 
         print()
@@ -93,7 +93,7 @@ def test_injection_sanity_check(obj_filename, app_path):
 def understand_aspect_ratio(
     injection_object, T_new, angle, aspect_ratio, bbox, path, name
 ):
-    """visualization for debug"""
+    """visualization for debug."""
 
     _, verts = injection_object.get_extreme_pixels(
         angle=angle, image_shape=(3, 1024, 1024)
@@ -150,7 +150,7 @@ def understand_aspect_ratio(
         paint_color=np.array([0, 0, 255]).astype(np.uint8),
     )
 
-    Image.fromarray(image).save(f"{path}/{name}.png")
+    Image.fromarray(image).save(f'{path}/{name}.png')
     return image
 
 
@@ -158,9 +158,9 @@ def test_injection_diffrent_aspect_ratio(obj_filename, app_path):
 
     global IMAGE_SIZE
 
-    path = f"{app_path}/data/test_injected/trainval/images/final_bbox"
+    path = f'{app_path}/data/test_injected/trainval/images/final_bbox'
     os.makedirs(path, exist_ok=True)
-    debug_path = f"{app_path}/data/test_injected/trainval/images/final_aspect"
+    debug_path = f'{app_path}/data/test_injected/trainval/images/final_aspect'
     os.makedirs(debug_path, exist_ok=True)
 
     T_0 = [0, 0, 0, 0]
@@ -195,7 +195,7 @@ def test_injection_diffrent_aspect_ratio(obj_filename, app_path):
             bbox = injection_object.rotate_pixels(
                 bbox.to(torch.float32), theta=torch.tensor([(np.pi * angle) / 180])
             )
-            print(f"real angle - {angle}")
+            print(f'real angle - {angle}')
             injection_object(
                 top_left=bbox[2],
                 top_right=bbox[3],
@@ -246,7 +246,7 @@ def test_injection_diffrent_aspect_ratio(obj_filename, app_path):
             # understand_aspect_ratio(injection_object, T_new, angle, aspect_ratio,
             # bbox, debug_path, f"bbox_{i}_angle{angle}_tnew")
 
-        print(f"\tdone angle - {angle}, bbox - {i}")
+        print(f'\tdone angle - {angle}, bbox - {i}')
         print()
 
     print()
@@ -255,21 +255,21 @@ def test_injection_diffrent_aspect_ratio(obj_filename, app_path):
 # Close the figure to prevent it from displaying
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 
     app_path = Path(__file__).parent.parent
-    dir_path = f"{app_path}/mmrotate/3Ddata/meshes"
+    dir_path = f'{app_path}/mmrotate/3Ddata/meshes'
     os.makedirs(dir_path, exist_ok=True)
 
     if torch.cuda.is_available():
-        device = torch.device("cuda:0")
+        device = torch.device('cuda:0')
         torch.cuda.set_device(device)
     else:
-        device = torch.device("cpu")
+        device = torch.device('cpu')
 
     # Set paths
-    DATA_DIR = f"{app_path}/mmrotate/3Ddata/"
-    obj_filename = os.path.join(DATA_DIR, "meshes/Container.obj")
+    DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
+    obj_filename = os.path.join(DATA_DIR, 'meshes/Container.obj')
 
     # Load obj file
     mesh = load_objs_as_meshes([obj_filename], device=device)
