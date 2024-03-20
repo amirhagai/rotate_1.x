@@ -1,6 +1,11 @@
-from infer_camera_parameters import *
+from infer_camera_parameters import InjectedObject, draw_pixels, IMAGE_SIZE
+from pytorch3d.io import load_objs_as_meshes
+import numpy as np
+from PIL import Image
 import os
 from pathlib import Path
+import torch
+
 
 def test_injection_sanity_check(obj_filename, app_path):
 

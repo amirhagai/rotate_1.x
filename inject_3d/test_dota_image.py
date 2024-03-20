@@ -1,4 +1,4 @@
-from parse_dota_file import *
+from parse_dota_file import parse_one_file
 from infer_camera_parameters import InjectedObject
 import torch
 from pathlib import Path
@@ -8,6 +8,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cv2
+import os
 
 folder_path = "/app/data/test_injected/trainval/annfiles/"
 file_name = "P0005__1024__0___0.txt"
@@ -110,7 +111,7 @@ def get_pixels_in_oriented_bbox(corners, image_shape):
     :param corners: Four corners of the OBB as a list of (x, y) tuples.
     :param image_shape: Shape of the image or matrix (height, width).
     :return: A binary mask with the same dimensions as the input image,
-             where pixels inside the OBB are set to 1 (True) and others are 0 (False).
+    where pixels inside the OBB are set to 1 (True) and others are 0 (False).
     """
     # Create an empty mask
     mask = np.zeros(image_shape, dtype=np.uint8)
@@ -172,7 +173,8 @@ for i in tqdm(range(len(bboxes))):
 
     segmantation_mask = segmantation_mask[:, :, 0]
 
-    # masks_im = np.hstack([mask * 255, segmantation_mask * 255, np.abs(segmantation_mask - mask) * 255]).astype(np.uint8)
+    # masks_im = np.hstack([mask * 255, segmantation_mask * 255,
+    # np.abs(segmantation_mask - mask) * 255]).astype(np.uint8)
 
     # Image.fromarray(masks_im).save(f"{debug_path}/{i}.png")
 
