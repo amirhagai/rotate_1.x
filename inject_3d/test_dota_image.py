@@ -261,42 +261,52 @@ if __name__ == '__main__':
     annotations_folder = '/app/data/test_injected/trainval/annfiles/'
     images_folder = '/app/data/test_injected/trainval/images/'
 
-    # Get all annotation files from the folder
+    bs = 6
+
     annotation_files = [
         f for f in os.listdir(annotations_folder) if f.endswith('.txt')
-    ][:8]
-
-    category = 'large-vehicle'
+    ]
 
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
 
     start.record()
-    # Prepare the data with GPU assignments
-    num_gpus = 2  # Number of GPUs available
-    data = [
-        (
-            annotations_folder,
-            annotation_file,
-            images_folder,
-            gif_images_path,
-            obj_filename,
-            category,
-            i,
-            i % num_gpus,
-        )
-        for i, annotation_file in enumerate(annotation_files)
-    ]
 
-    # Set the start method to 'spawn'
-    mp.set_start_method('spawn', force=True)
-    print(f'cpu count - {mp.cpu_count()}')
-    # Create a Pool of workers
-    with mp.Pool(processes=mp.cpu_count()) as pool:
-        pool.map(process_image_worker, data)
+    for ind in range(0, len(annotation_files), bs):
 
-    pool.close()
-    pool.join()
+        annotation_files_batch = annotation_files[
+            ind : min(ind + bs, len(annotation_files))
+        ]
+
+        # Get all annotation files from the folder
+        category = 'large-vehicle'
+
+        # Prepare the data with GPU assignments
+        num_gpus = 2  # Number of GPUs available
+        data = [
+            (
+                annotations_folder,
+                annotation_file,
+                images_folder,
+                gif_images_path,
+                obj_filename,
+                category,
+                i,
+                i % num_gpus,
+            )
+            for i, annotation_file in enumerate(annotation_files_batch)
+        ]
+
+        # Set the start method to 'spawn'
+        mp.set_start_method('spawn', force=True)
+        print(f'cpu count - {mp.cpu_count()}')
+        # Create a Pool of workers
+        with mp.Pool(processes=mp.cpu_count()) as pool:
+            pool.map(process_image_worker, data)
+
+        pool.close()
+        pool.join()
+        torch.cuda.empty_cache()
 
     end.record()
 
