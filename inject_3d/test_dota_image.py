@@ -2,38 +2,13 @@ from parse_dota_file import parse_one_file
 from infer_camera_parameters import InjectedObject
 import torch
 from pathlib import Path
-from tqdm import tqdm
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cv2
 import os
-
-folder_path = '/app/data/test_injected/trainval/annfiles/'
-file_name = 'P0005__1024__0___0.txt'
-
-bboxes = parse_one_file(folder_path=folder_path, file_name=file_name)
-
-app_path = Path(__file__).parent.parent
-DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
-obj_filename = os.path.join(DATA_DIR, 'meshes/Container.obj')
-
-injection = InjectedObject(obj_filename)
-
-images_path = '/app/data/test_injected/trainval/images/finals'
-os.makedirs(images_path, exist_ok=True)
-
-gif_images_path = f'{images_path}/gif_images'
-os.makedirs(gif_images_path, exist_ok=True)
-
-
-debug_path = f'{images_path}/debug'
-os.makedirs(debug_path, exist_ok=True)
-
-images = []
-segs = []
-print(len(bboxes))
+import torch.multiprocessing as mp
 
 
 def create_gif(image_folder, int_comp=False):
@@ -74,12 +49,6 @@ def create_gif(image_folder, int_comp=False):
 
 
 # create_gif(image_folder=images_path)
-
-
-start = torch.cuda.Event(enable_timing=True)
-end = torch.cuda.Event(enable_timing=True)
-
-start.record()
 
 
 def draw_pixels(image, y_pixel_int, x_pixel_int, square_size, paint_colors):
@@ -130,31 +99,11 @@ def get_pixels_in_oriented_bbox(corners, image_shape):
     return mask
 
 
-# create_gif(gif_images_path, int_comp=True)
+def get_jaccard_ind(segmantation_mask, corners, image_shape):
 
-
-jackards = []
-masks = []
-images = []
-for i in tqdm(range(len(bboxes))):
-
-    bbox = torch.tensor(sort_bbox(bboxes[i])).to(torch.float32)
-    corners = bbox.detach().cpu().numpy()
-    mask = get_pixels_in_oriented_bbox(corners, [1024, 1024])
+    mask = get_pixels_in_oriented_bbox(corners, image_shape)
     pixels_inside_obb = np.argwhere(mask == 1)
-
-    image, segmantation_mask = injection(
-        bottom_left=bbox[0],
-        bottom_right=bbox[1],
-        top_left=bbox[2],
-        top_right=bbox[3],
-        image_shape=[3, 1024, 1024],
-        path=images_path,
-        i=0,
-    )
-
     pixels_inside_segmantation = np.argwhere(segmantation_mask[:, :, 0] == 1)
-
     set_1 = set(map(tuple, pixels_inside_obb))
     set_2 = set(map(tuple, pixels_inside_segmantation))
 
@@ -164,58 +113,194 @@ for i in tqdm(range(len(bboxes))):
 
     # Calculate Jaccard index
     jaccard_index = len(intersection) / len(union)
-
-    jackards.append(jaccard_index)
-    images.append(image)
-    masks.append(mask)
-    segs.append(segmantation_mask)
-
-    segmantation_mask = segmantation_mask[:, :, 0]
-
-    # masks_im = np.hstack([mask * 255, segmantation_mask * 255,
-    # np.abs(segmantation_mask - mask) * 255]).astype(np.uint8)
-
-    # Image.fromarray(masks_im).save(f"{debug_path}/{i}.png")
-
-    # draw_pixels(
-    #             im,
-    #             bbox[:, 1].numpy().astype(np.int32),
-    #             bbox[:, 0].numpy().astype(np.int32),
-    #             square_size=5,
-    #             paint_colors=colors,
-    #         )
-
-# Image.fromarray(im).save(f"{images_path}/test_bbox_oriantation.png")
-
-dota_np = np.array(
-    Image.open('/app/data/test_injected/trainval/images/P0005__1024__0___0.png')
-)
-Image.fromarray(dota_np).save(f'{gif_images_path}/0.png')
-
-jackards = np.array(jackards)
-sorted_jackards_indecis = np.argsort(jackards)
-# print(jackards[sorted_jackards_indecis])
-# for j, i in enumerate(sorted_jackards_indecis[::-1]):
-#     dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
-#     Image.fromarray(dota_np).save(f"{gif_images_path }/{j + 1}.png")
+    return jaccard_index, mask
 
 
-create_gif(gif_images_path, int_comp=True)
-end.record()
+def parse_one_image(
+    image_path,
+    gif_images_path,
+    obj_filename,
+    annotation_folder_path,
+    annotation_file_name,
+    category='large-vehicle',
+):
 
-dota_np = np.array(
-    Image.open('/app/data/test_injected/trainval/images/P0005__1024__0___0.png')
-)
+    bboxes = parse_one_file(
+        folder_path=annotation_folder_path,
+        file_name=annotation_file_name,
+        category=category,
+    )
+    print(f'number of bboxes - {len(bboxes)}')
+    injection = InjectedObject(obj_filename)
 
-for i in range(len(masks)):
-    dota_np = (1 - masks[i][:, :, None]) * dota_np + masks[i][:, :, None] * (
-        masks[i][:, :, None] * 255
+    jackards = []
+    masks = []
+    images = []
+    segs = []
+    for i in range(len(bboxes)):
+
+        bbox = torch.tensor(sort_bbox(bboxes[i])).to(torch.float32)
+        corners = bbox.detach().cpu().numpy()
+
+        image, segmantation_mask = injection(
+            bottom_left=bbox[0],
+            bottom_right=bbox[1],
+            top_left=bbox[2],
+            top_right=bbox[3],
+            image_shape=[3, 1024, 1024],
+        )
+
+        jaccard_index, mask = get_jaccard_ind(
+            segmantation_mask, corners, [1024, 1024]
+        )
+
+        jackards.append(jaccard_index)
+        images.append(image)
+        masks.append(mask)
+        segs.append(segmantation_mask)
+
+        segmantation_mask = segmantation_mask[:, :, 0]
+
+    dota_np = np.array(Image.open(f'{image_path}'))
+    Image.fromarray(dota_np).save(f'{gif_images_path}/0.png')
+
+    jackards = np.array(jackards)
+    sorted_jackards_indecis = np.argsort(jackards)
+    for j, i in enumerate(sorted_jackards_indecis[::-1]):
+        dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
+    #     Image.fromarray(dota_np).save(f"{gif_images_path }/{j + 1}.png")
+
+    # create_gif(gif_images_path, int_comp=True)
+    # dota_np = np.array(Image.open(f"{image_path}"))
+
+    # for i in range(len(masks)):
+    #     dota_np = (1 - masks[i][:, :, None]) * dota_np + masks[i][:, :, None] * (
+    #         masks[i][:, :, None] * 255
+    #     )
+    Image.fromarray(dota_np).save(f'{gif_images_path}/basic.png')
+    print('done')
+
+
+def process_image(
+    annotations_folder,
+    annotation_file,
+    images_folder,
+    gif_images_path,
+    obj_filename,
+    category='large-vehicle',
+    i=0,
+):
+    # Extract the base file name without extension to match the image file
+    base_name = os.path.splitext(annotation_file)[0]
+    image_file = os.path.join(images_folder, f'{base_name}.png')
+    gif_images_path = f'{gif_images_path}/{i}'
+    os.makedirs(gif_images_path, exist_ok=True)
+
+    # Check if the corresponding image file exists
+    if os.path.exists(image_file):
+        parse_one_image(
+            image_path=image_file,
+            gif_images_path=gif_images_path,
+            obj_filename=obj_filename,
+            annotation_folder_path=annotations_folder,
+            annotation_file_name=os.path.basename(annotation_file),
+            category=category,
+        )
+    torch.cuda.empty_cache()
+
+
+def worker_init():
+    # Explicitly create a new CUDA context
+    if torch.cuda.is_available():
+        torch.cuda.init()
+
+
+def process_image_worker(data):
+    (
+        annotations_folder,
+        annotation_file,
+        images_folder,
+        gif_images_path,
+        obj_filename,
+        category,
+        index,
+        gpu_id,
+    ) = data
+    # Set the current process to use the specific GPU
+    torch.cuda.set_device(gpu_id)
+    process_image(
+        annotations_folder,
+        annotation_file,
+        images_folder,
+        gif_images_path,
+        obj_filename,
+        category,
+        index,
     )
 
-Image.fromarray(dota_np).save(f'{gif_images_path}/basic.png')
 
-# Waits for everything to finish running
-torch.cuda.synchronize()
+if __name__ == '__main__':
 
+    folder_path = '/app/data/test_injected/trainval/annfiles/'
+    file_name = 'P0005__1024__0___0.txt'
+    image_path = '/app/data/test_injected/trainval/images/P0005__1024__0___0.png'
 
-print(f'elapsed time in seconds - {start.elapsed_time(end) / 1000}')
+    app_path = Path(__file__).parent.parent
+    DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
+    obj_filename = os.path.join(DATA_DIR, 'meshes/Container.obj')
+
+    images_path = '/app/data/test_injected/trainval/images/finals'
+    os.makedirs(images_path, exist_ok=True)
+
+    gif_images_path = f'{images_path}/gif_images'
+    os.makedirs(gif_images_path, exist_ok=True)
+
+    debug_path = f'{images_path}/debug'
+    os.makedirs(debug_path, exist_ok=True)
+
+    annotations_folder = '/app/data/test_injected/trainval/annfiles/'
+    images_folder = '/app/data/test_injected/trainval/images/'
+
+    # Get all annotation files from the folder
+    annotation_files = [
+        f for f in os.listdir(annotations_folder) if f.endswith('.txt')
+    ][:8]
+
+    category = 'large-vehicle'
+
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+
+    start.record()
+    # Prepare the data with GPU assignments
+    num_gpus = 2  # Number of GPUs available
+    data = [
+        (
+            annotations_folder,
+            annotation_file,
+            images_folder,
+            gif_images_path,
+            obj_filename,
+            category,
+            i,
+            i % num_gpus,
+        )
+        for i, annotation_file in enumerate(annotation_files)
+    ]
+
+    # Set the start method to 'spawn'
+    mp.set_start_method('spawn', force=True)
+    print(f'cpu count - {mp.cpu_count()}')
+    # Create a Pool of workers
+    with mp.Pool(processes=mp.cpu_count()) as pool:
+        pool.map(process_image_worker, data)
+
+    pool.close()
+    pool.join()
+
+    end.record()
+
+    # Waits for everything to finish running
+    torch.cuda.synchronize()
+
+    print(f'elapsed_time - {start.elapsed_time(end) / 1000}')
