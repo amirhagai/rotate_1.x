@@ -1,6 +1,6 @@
 # dataset settings
 dataset_type = 'DOTADataset'
-data_root = 'data/split_ss_dota/'
+data_root = '/data/split_ss_dota/'
 
 backend_args = None
 size = 512
@@ -13,16 +13,11 @@ train_pipeline = [
     dict(
         type='mmdet.RandomFlip',
         prob=0.75,
-        direction=['horizontal', 'vertical', 'diagonal']),
-    dict(
-        type='RandomRotate',
-        prob=0.5,
-        angle_range=180,
-        rect_obj_labels=[9, 11]),
-    dict(
-        type='mmdet.Pad', size=(size, size),
-        pad_val=dict(img=(114, 114, 114))),
-    dict(type='mmdet.PackDetInputs')
+        direction=['horizontal', 'vertical', 'diagonal'],
+    ),
+    dict(type='RandomRotate', prob=0.5, angle_range=180, rect_obj_labels=[9, 11]),
+    dict(type='mmdet.Pad', size=(size, size), pad_val=dict(img=(114, 114, 114))),
+    dict(type='mmdet.PackDetInputs'),
 ]
 val_pipeline = [
     dict(type='mmdet.LoadImageFromFile', backend_args=backend_args),
@@ -30,24 +25,20 @@ val_pipeline = [
     # avoid bboxes being resized
     dict(type='mmdet.LoadAnnotations', with_bbox=True, box_type='qbox'),
     dict(type='ConvertBoxType', box_type_mapping=dict(gt_bboxes='rbox')),
-    dict(
-        type='mmdet.Pad', size=(size, size),
-        pad_val=dict(img=(114, 114, 114))),
+    dict(type='mmdet.Pad', size=(size, size), pad_val=dict(img=(114, 114, 114))),
     dict(
         type='mmdet.PackDetInputs',
-        meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape',
-                   'scale_factor'))
+        meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape', 'scale_factor'),
+    ),
 ]
 test_pipeline = [
     dict(type='mmdet.LoadImageFromFile', backend_args=backend_args),
     dict(type='mmdet.Resize', scale=(size, size), keep_ratio=True),
-    dict(
-        type='mmdet.Pad', size=(size, size),
-        pad_val=dict(img=(114, 114, 114))),
+    dict(type='mmdet.Pad', size=(size, size), pad_val=dict(img=(114, 114, 114))),
     dict(
         type='mmdet.PackDetInputs',
-        meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape',
-                   'scale_factor'))
+        meta_keys=('img_id', 'img_path', 'ori_shape', 'img_shape', 'scale_factor'),
+    ),
 ]
 train_dataloader = dict(
     batch_size=8,
@@ -59,10 +50,12 @@ train_dataloader = dict(
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        ann_file='trainval/annfiles/',
-        data_prefix=dict(img_path='trainval/images/'),
+        ann_file='train/annfiles/',
+        data_prefix=dict(img_path='train/images/'),
         filter_cfg=dict(filter_empty_gt=True),
-        pipeline=train_pipeline))
+        pipeline=train_pipeline,
+    ),
+)
 val_dataloader = dict(
     batch_size=1,
     num_workers=2,
@@ -72,10 +65,12 @@ val_dataloader = dict(
     dataset=dict(
         type=dataset_type,
         data_root=data_root,
-        ann_file='trainval/annfiles/',
-        data_prefix=dict(img_path='trainval/images/'),
+        ann_file='val/annfiles/',
+        data_prefix=dict(img_path='val/images/'),
         test_mode=True,
-        pipeline=val_pipeline))
+        pipeline=val_pipeline,
+    ),
+)
 test_dataloader = val_dataloader
 
 val_evaluator = dict(type='DOTAMetric', metric='mAP')
