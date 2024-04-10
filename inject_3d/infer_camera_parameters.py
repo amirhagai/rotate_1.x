@@ -912,10 +912,10 @@ class InjectedObject:
             rotated_patch = rotated_patch[int(y_bound[0]):int(y_bound[1]), int(x_bound[0]):int(x_bound[1]), :]
             # For torch tensor, place the rotated patch back into the image tensor
             if isinstance(image, torch.Tensor):
-                new_image = image.clone()
+                new_image = torch.ones_like(image)
                 origin_y_max = origin_y_max + rotated_patch.shape[0] - (origin_y_max - origin_y_min)# + 1
                 # origin_y_min = origin_y_min  + (origin_y_max - origin_y_min) - rotated_patch.shape[0]  + 1
-                origin_x_max = origin_x_max
+                origin_x_max = origin_x_max + rotated_patch.shape[1] - (origin_x_max - origin_x_min)
                 origin_x_min = origin_x_min
                 new_image[int(origin_y_min.item()):int(origin_y_max.item()), int(origin_x_min.item()):int(origin_x_max.item()), :] = rotated_patch
             else:
@@ -972,12 +972,13 @@ class InjectedObject:
 
         if self.obj_name == 'TruckCGTrader': # reverse thr process 
             if dx > dy:
+                self.natural_aspect_ratio = 1 / self.natural_aspect_ratio
                 self.mesh = load_objs_as_meshes([self.obj_file_path], device=self.device)
                 self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
 
         if self.obj_name == "Container":
             if dy > dx:
-
+                self.natural_aspect_ratio = 1 / self.natural_aspect_ratio
                 self.mesh = load_objs_as_meshes([self.obj_file_path], device=self.device)
                 self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
 
