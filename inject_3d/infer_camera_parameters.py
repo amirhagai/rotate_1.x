@@ -912,7 +912,7 @@ class InjectedObject:
             rotated_patch = rotated_patch[int(y_bound[0]):int(y_bound[1]), int(x_bound[0]):int(x_bound[1]), :]
             # For torch tensor, place the rotated patch back into the image tensor
             if isinstance(image, torch.Tensor):
-                new_image = torch.ones_like(image)
+                new_image = torch.zeros_like(image)
                 origin_y_max = origin_y_max + rotated_patch.shape[0] - (origin_y_max - origin_y_min)# + 1
                 # origin_y_min = origin_y_min  + (origin_y_max - origin_y_min) - rotated_patch.shape[0]  + 1
                 origin_x_max = origin_x_max + rotated_patch.shape[1] - (origin_x_max - origin_x_min)
