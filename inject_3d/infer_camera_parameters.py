@@ -913,6 +913,10 @@ class InjectedObject:
             # For torch tensor, place the rotated patch back into the image tensor
             if isinstance(image, torch.Tensor):
                 new_image = image.clone()
+                origin_y_max = origin_y_max + rotated_patch.shape[0] - (origin_y_max - origin_y_min)# + 1
+                # origin_y_min = origin_y_min  + (origin_y_max - origin_y_min) - rotated_patch.shape[0]  + 1
+                origin_x_max = origin_x_max
+                origin_x_min = origin_x_min
                 new_image[int(origin_y_min.item()):int(origin_y_max.item()), int(origin_x_min.item()):int(origin_x_max.item()), :] = rotated_patch
             else:
                 # For PIL image, paste the rotated patch back into the image
@@ -944,6 +948,7 @@ class InjectedObject:
         # this order is important 
         segmantation_mask = (image[:, :, 0] != 0).cpu().numpy().astype(np.uint8)[:, :, None]
         image = (image * 255).cpu().numpy().astype(np.uint8)
+        draw_pixels(image, cloned_origin[:, 0].cpu().numpy().astype(np.int16), cloned_origin[:, 1].cpu().numpy().astype(np.int16), 5, [255, 0, 0])
         # image = np.transpose(image, (2, 0, 1))
 
         bbox = torch.stack([bottom_left, bottom_right, top_left, top_right])
@@ -967,24 +972,13 @@ class InjectedObject:
 
         if self.obj_name == 'TruckCGTrader': # reverse thr process 
             if dx > dy:
-                base_rotation_angle= -90
-                self.natural_aspect_ratio = 1 / self.natural_aspect_ratio
-                rotation = RotateAxisAngle(
-                        angle=base_rotation_angle, axis='Y'
-                    ).get_matrix()
                 self.mesh = load_objs_as_meshes([self.obj_file_path], device=self.device)
-                self.mesh._verts_list[0] = (self.mesh._verts_list[0] @ rotation[:, :3, :3].to(self.device))[0]
                 self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
 
         if self.obj_name == "Container":
             if dy > dx:
-                base_rotation_angle = 90
-                self.natural_aspect_ratio = 1 / self.natural_aspect_ratio
-                rotation = RotateAxisAngle(
-                        angle=base_rotation_angle, axis='Y'
-                    ).get_matrix()
+
                 self.mesh = load_objs_as_meshes([self.obj_file_path], device=self.device)
-                self.mesh._verts_list[0] = (self.mesh._verts_list[0] @ rotation[:, :3, :3].to(self.device))[0]
                 self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
 
                 
