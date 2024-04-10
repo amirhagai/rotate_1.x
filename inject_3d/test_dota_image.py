@@ -9,6 +9,8 @@ import matplotlib.animation as animation
 import cv2
 import os
 import torch.multiprocessing as mp
+from tqdm import tqdm
+from pathlib import Path
 
 
 def create_gif(image_folder, int_comp=False):
@@ -44,6 +46,7 @@ def create_gif(image_folder, int_comp=False):
 
     # Save the animation
     ani.save(f'{image_folder}/movie.gif', writer='pillow', fps=2)
+    print(f"\n\ngif located at - {image_folder}/movie.gif", end="\n\n")
 
     plt.close(fig)
 
@@ -124,20 +127,41 @@ def parse_one_image(
     annotation_file_name,
     category='large-vehicle',
 ):
+    
+    # x = torch.rand(5000, 3)
+    image_name = Path(image_path).name
+
+    injection_ycbcr_path = Path(gif_images_path).parent / "ycbcr"
+    os.makedirs(injection_ycbcr_path, exist_ok=True)
+
+    start = torch.cuda.Event(enable_timing=True)
+    end = torch.cuda.Event(enable_timing=True)
+
+    start.record()
 
     bboxes = parse_one_file(
         folder_path=annotation_folder_path,
         file_name=annotation_file_name,
         category=category,
     )
+
+    dota_np = np.array(Image.open(f'{image_path}'))
+    if len(bboxes) == 0:
+        # Image.fromarray(dota_np).save(f"{injection_ycbcr_path}/{image_name}")
+        # Image.fromarray(dota_np).save(f"{gif_images_path}/{image_name}")
+        return
+    
     print(f'number of bboxes - {len(bboxes)}')
-    injection = InjectedObject(obj_filename)
+    injection = InjectedObject(obj_filename, device="cuda:0")
+    torch.cuda.set_device(injection.device)
 
     jackards = []
     masks = []
     images = []
     segs = []
-    for i in range(len(bboxes)):
+
+
+    for i in tqdm(range(len(bboxes))):
 
         bbox = torch.tensor(sort_bbox(bboxes[i])).to(torch.float32)
         corners = bbox.detach().cpu().numpy()
@@ -148,7 +172,13 @@ def parse_one_image(
             top_left=bbox[2],
             top_right=bbox[3],
             image_shape=[3, 1024, 1024],
+            random_colors=False, 
+            random_materials=False, 
+            random_shininess=False
         )
+
+        Image.fromarray(image).save(f"{gif_images_path}/{i}_{image_name}")
+
 
         jaccard_index, mask = get_jaccard_ind(
             segmantation_mask, corners, [1024, 1024]
@@ -161,14 +191,26 @@ def parse_one_image(
 
         segmantation_mask = segmantation_mask[:, :, 0]
 
-    dota_np = np.array(Image.open(f'{image_path}'))
-    Image.fromarray(dota_np).save(f'{gif_images_path}/0.png')
+
 
     jackards = np.array(jackards)
     sorted_jackards_indecis = np.argsort(jackards)
     for j, i in enumerate(sorted_jackards_indecis[::-1]):
+        yuv_img = np.array(Image.fromarray(images[i]).convert('YCbCr'))
+        yuv_origin = np.array(Image.fromarray((segs[i]) * dota_np).convert('YCbCr'))
+        new_obj = np.concatenate([yuv_origin[:, :, 0][:, :, None] , yuv_img[:, :, 1][:, :, None], yuv_img[:, :, 2][:, :, None]], axis=2).astype(np.uint8)
+        new_obj_im = Image.fromarray(new_obj, 'YCbCr').convert('RGB')
+        # dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
+        dota_np = (1 - segs[i]) * dota_np + segs[i] * new_obj_im
+
+    Image.fromarray(dota_np).save(f"{injection_ycbcr_path}/{image_name}")
+
+    dota_np = np.array(Image.open(f'{image_path}'))
+    for j, i in enumerate(sorted_jackards_indecis[::-1]):
         dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
-    #     Image.fromarray(dota_np).save(f"{gif_images_path }/{j + 1}.png")
+        # Image.fromarray(dota_np).save(f"{gif_images_path}/{i}_{image_name}")
+
+    Image.fromarray(dota_np).save(f"{gif_images_path}/{image_name}")
 
     # create_gif(gif_images_path, int_comp=True)
     # dota_np = np.array(Image.open(f"{image_path}"))
@@ -177,8 +219,15 @@ def parse_one_image(
     #     dota_np = (1 - masks[i][:, :, None]) * dota_np + masks[i][:, :, None] * (
     #         masks[i][:, :, None] * 255
     #     )
-    Image.fromarray(dota_np).save(f'{gif_images_path}/basic.png')
+    # Image.fromarray(dota_np).save(f'{gif_images_path}/basic.png')
     print('done')
+    end.record()
+
+    # Waits for everything to finish running
+    torch.cuda.synchronize()
+
+
+    print(f'elapsed_time - {start.elapsed_time(end) / 1000}')
 
 
 def process_image(
@@ -188,12 +237,10 @@ def process_image(
     gif_images_path,
     obj_filename,
     category='large-vehicle',
-    i=0,
 ):
     # Extract the base file name without extension to match the image file
     base_name = os.path.splitext(annotation_file)[0]
     image_file = os.path.join(images_folder, f'{base_name}.png')
-    gif_images_path = f'{gif_images_path}/{i}'
     os.makedirs(gif_images_path, exist_ok=True)
 
     # Check if the corresponding image file exists
@@ -203,7 +250,7 @@ def process_image(
             gif_images_path=gif_images_path,
             obj_filename=obj_filename,
             annotation_folder_path=annotations_folder,
-            annotation_file_name=os.path.basename(annotation_file),
+            annotation_file_name=f"{Path(annotation_file).stem}.txt",
             category=category,
         )
     torch.cuda.empty_cache()
@@ -223,7 +270,6 @@ def process_image_worker(data):
         gif_images_path,
         obj_filename,
         category,
-        index,
         gpu_id,
     ) = data
     # Set the current process to use the specific GPU
@@ -235,82 +281,96 @@ def process_image_worker(data):
         gif_images_path,
         obj_filename,
         category,
-        index,
     )
 
 
 if __name__ == '__main__':
 
-    folder_path = '/app/data/test_injected/trainval/annfiles/'
-    file_name = 'P0005__1024__0___0.txt'
-    image_path = '/app/data/test_injected/trainval/images/P0005__1024__0___0.png'
+    print("start")
+
+    # file_name = 'P0005__1024__0___0.txt'
 
     app_path = Path(__file__).parent.parent
     DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
-    obj_filename = os.path.join(DATA_DIR, 'meshes/Container.obj')
+    obj_filename = os.path.join(DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj')
+    # obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
 
-    images_path = '/app/data/test_injected/trainval/images/finals'
+    images_path = '/app/data/test_injected/finals'
     os.makedirs(images_path, exist_ok=True)
 
-    gif_images_path = f'{images_path}/gif_images'
+    gif_images_path = f'/app/data/split_ss_dota/train_injected/images'
     os.makedirs(gif_images_path, exist_ok=True)
 
     debug_path = f'{images_path}/debug'
     os.makedirs(debug_path, exist_ok=True)
 
-    annotations_folder = '/app/data/test_injected/trainval/annfiles/'
-    images_folder = '/app/data/test_injected/trainval/images/'
+    annotations_folder = '/app/data/split_ss_dota/train/annfiles/'
+    images_folder = '/app/data/split_ss_dota/train/images'
 
-    bs = 6
+    for filename in os.listdir(images_folder):
+        print(f"working on- {filename}")
+        if "P1446__1024__1022___0" not in filename:
+            continue
+        process_image(
+                    annotations_folder,
+                    filename,
+                    images_folder,
+                    gif_images_path,
+                    obj_filename,
+                    )
+    
+        print("done")
 
-    annotation_files = [
-        f for f in os.listdir(annotations_folder) if f.endswith('.txt')
-    ]
+    # bs = 6
 
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
+    # annotation_files = [
+    #     f for f in os.listdir(annotations_folder) if f.endswith('.txt')
+    # ]
 
-    start.record()
+    # start = torch.cuda.Event(enable_timing=True)
+    # end = torch.cuda.Event(enable_timing=True)
 
-    for ind in range(0, len(annotation_files), bs):
+    # start.record()
 
-        annotation_files_batch = annotation_files[
-            ind : min(ind + bs, len(annotation_files))
-        ]
+    # for ind in range(0, len(annotation_files), bs):
 
-        # Get all annotation files from the folder
-        category = 'large-vehicle'
+    #     annotation_files_batch = annotation_files[
+    #         ind : min(ind + bs, len(annotation_files))
+    #     ]
 
-        # Prepare the data with GPU assignments
-        num_gpus = 2  # Number of GPUs available
-        data = [
-            (
-                annotations_folder,
-                annotation_file,
-                images_folder,
-                gif_images_path,
-                obj_filename,
-                category,
-                i,
-                i % num_gpus,
-            )
-            for i, annotation_file in enumerate(annotation_files_batch)
-        ]
+    #     # Get all annotation files from the folder
+    #     category = 'large-vehicle'
 
-        # Set the start method to 'spawn'
-        mp.set_start_method('spawn', force=True)
-        print(f'cpu count - {mp.cpu_count()}')
-        # Create a Pool of workers
-        with mp.Pool(processes=mp.cpu_count()) as pool:
-            pool.map(process_image_worker, data)
+    #     # Prepare the data with GPU assignments
+    #     num_gpus = 2  # Number of GPUs available
+    #     data = [
+    #         (
+    #             annotations_folder,
+    #             annotation_file,
+    #             images_folder,
+    #             gif_images_path,
+    #             obj_filename,
+    #             category,
+    #             i,
+    #             i % num_gpus,
+    #         )
+    #         for i, annotation_file in enumerate(annotation_files_batch)
+    #     ]
 
-        pool.close()
-        pool.join()
-        torch.cuda.empty_cache()
+    #     # Set the start method to 'spawn'
+    #     mp.set_start_method('spawn', force=True)
+    #     print(f'cpu count - {mp.cpu_count()}')
+    #     # Create a Pool of workers
+    #     with mp.Pool(processes=mp.cpu_count()) as pool:
+    #         pool.map(process_image_worker, data)
 
-    end.record()
+    #     pool.close()
+    #     pool.join()
+    #     torch.cuda.empty_cache()
 
-    # Waits for everything to finish running
-    torch.cuda.synchronize()
+    # end.record()
 
-    print(f'elapsed_time - {start.elapsed_time(end) / 1000}')
+    # # Waits for everything to finish running
+    # torch.cuda.synchronize()
+
+    # print(f'elapsed_time - {start.elapsed_time(end) / 1000}')

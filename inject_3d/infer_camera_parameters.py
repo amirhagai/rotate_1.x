@@ -7,6 +7,10 @@ from PIL import Image
 # Util function for loading meshes
 from pytorch3d.io import load_objs_as_meshes
 from pytorch3d.renderer import (
+    PointsRasterizer,
+    PointsRenderer,
+    AlphaCompositor,
+    PointsRasterizationSettings,
     FoVPerspectiveCameras,
     MeshRasterizer,
     MeshRenderer,
@@ -14,9 +18,12 @@ from pytorch3d.renderer import (
     RasterizationSettings,
     SoftPhongShader,
     look_at_view_transform,
+    Materials
 )
 from pytorch3d.transforms import RotateAxisAngle
 import torchvision
+from pytorch3d.structures import Pointclouds
+from pathlib import Path
 
 IMAGE_SIZE = 1024
 
@@ -54,17 +61,54 @@ def find_angle_from_bbox(
     return -angle_degrees
 
 
+def render_points_only(points, cameras):
+    """returns black image with the verts given in points render over it.
+
+    to save it as PIL image one should multiple the result by 255 and move it
+    to uint8
+    """
+
+    global IMAGE_SIZE
+    # Define rasterization settings for the point cloud
+    raster_settings = PointsRasterizationSettings(
+        image_size=IMAGE_SIZE,
+        radius=0.003,  # The radius of each point in NDC units
+        points_per_pixel=11,  # Number of points to rasterize per pixel
+    )
+
+    # Create the point cloud renderer
+    renderer = PointsRenderer(
+        rasterizer=PointsRasterizer(
+            cameras=cameras, raster_settings=raster_settings
+        ),
+        compositor=AlphaCompositor(),
+    )
+    # Render the point cloud
+    images = renderer(points)
+
+    return (images[0, ..., :3]).cpu().numpy()
+
 class InjectedObject:
-    def __init__(self, obj_file_path, TZ_start=70, T=None) -> None:
+    def __init__(self, obj_file_path, TZ_start=70, T=None, device="cuda:0") -> None:
 
         if torch.cuda.is_available():
-            self.device = torch.device('cuda:0')
+            self.device = torch.device(device)
             torch.cuda.set_device(self.device)
         else:
             self.device = torch.device('cpu')
 
+        self.obj_name = Path(obj_file_path)._parts[-2]
+        self.obj_file_path = obj_file_path
         self.mesh = load_objs_as_meshes([obj_file_path], device=self.device)
-        self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
+
+        # if self.obj_name == 'TruckCGTrader':
+        #     rotation = RotateAxisAngle(
+        #             angle=90, axis='Y'
+        #         ).get_matrix()
+            
+        #     self.mesh._verts_list[0] = (self.mesh._verts_list[0] @ rotation[:, :3, :3].to(self.device))[0]
+
+        # self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
         self.TZ_start = TZ_start
 
         self.elev = 90
@@ -94,6 +138,7 @@ class InjectedObject:
 
         fov = (self.camera.fov * np.pi) / 180  # angles to radins
         self.fov_weight = 1 / torch.tan((fov / 2))
+        self.fix_aspect_ratio = False
         self.natural_aspect_ratio = self.get_natural_aspect_ratio()
 
     def get_natural_aspect_ratio(self):
@@ -110,13 +155,38 @@ class InjectedObject:
 
         dx = (x_max_y_max_z_min - x_min_y_max_z_min)[0]
         dy = (x_max_y_max_z_max - x_max_y_max_z_min)[2]
-
+        if dy > dx:
+            self.fix_aspect_ratio = True
+        else:
+            self.fix_aspect_ratio = False
         return dy / dx
 
     def find_closest(self, x, y, z):
         verts = self.verts
         recived_tensor = torch.tensor([x, y, z], device=verts.device)
         return verts[torch.norm(verts - recived_tensor, dim=1).argmin()]
+    
+    def _verts_to_pixles(self, verts):
+        # features = torch.rand((len(verts), 3)).to(verts.device)
+        color_names = ['red', 'green', 'blue', 'yellow', 'purple', 'orange', 'cyan', 'magenta']
+        colors_rgb = [
+            [1.0, 0.0, 0.0],  # red - truck bl
+            [0.0, 1.0, 0.0],  # green - truck br
+            [0.0, 0.0, 1.0],  # blue - truck tl
+            [1.0, 1.0, 0.0],  # yellow - truck tr
+            [0.5, 0.0, 0.5],  # purple
+            [1.0, 0.5, 0.0],  # orange
+            [0.0, 1.0, 1.0],  # cyan
+            [1.0, 0.0, 1.0]   # magenta
+        ]
+
+        # Convert to a PyTorch tensor
+        features = torch.tensor(colors_rgb, dtype=torch.float32).to(verts.device)
+        points = Pointclouds(points=[verts], features=[features])
+        torch_points_render_image = render_points_only(points, self.camera)
+        print()
+        return torch_points_render_image
+
 
     def get_mesh_extreme_points_from_looking_above_view(self):
         """
@@ -162,6 +232,14 @@ class InjectedObject:
         x_max_y_min_z_max = torch.stack((x_max, y_min, z_max))
         # self.find_closest(x_max, y_min, z_max)
 
+        # self._verts_to_pixles(torch.stack([x_max_y_max_z_min,  # bl
+        #     x_min_y_max_z_min,  # br
+        #     x_max_y_max_z_max,  # tl
+        #     x_min_y_max_z_max,  # tr
+        #     x_max_y_min_z_max,
+        #     x_min_y_min_z_max,
+        #     x_max_y_min_z_min,
+        #     x_min_y_min_z_min,]))
         return (
             x_max_y_max_z_min,  # bl
             x_min_y_max_z_min,  # br
@@ -173,7 +251,7 @@ class InjectedObject:
             x_min_y_min_z_min,
         )
 
-    def render_mesh(self, T_z, angle, T=None, R=None, aspect_ratio=1):
+    def render_mesh(self, T_z, angle, T=None, R=None, aspect_ratio=1, random_colors=False, random_materials=False, random_shininess=False):
         global IMAGE_SIZE
         R_, T_ = look_at_view_transform(
             T_z, elev=self.elev, azim=self.azim, up=self.up, at=self.at
@@ -199,21 +277,86 @@ class InjectedObject:
             max_faces_per_bin=None,
         )
 
-        lights = PointLights(device=self.device, location=[[0.0, 0.0, -3.0]])
+        # Function to generate random RGB colors
+        def random_rgb(device):
+            color = torch.rand(1, 3, device=device)  + 0.01# Adjust the scaling and shifting factors as needed
+            # Ensure the colors are still in the valid range [0, 1]
+            color = torch.clamp(color, min=0.01, max=1)
+            # color[0, 1] = 0. # delete green channel
+            return color
+
+        device = self.device
+        if random_colors == True:
+            # Assuming your device is 'cuda:0'
+
+            # Generate random colors for ambient and diffuse (you can make them the same if needed)
+            ambient_color = random_rgb(device)
+            diffuse_color = random_rgb(device)
+            specular_color = random_rgb(device)  # Specular can be different or white ([1, 1, 1]) for shiny highlights
+
+            # Setup lights with random colors
+            lights = PointLights(
+                device=device,
+                ambient_color=ambient_color,
+                diffuse_color=diffuse_color,
+                specular_color=specular_color,
+                location=[[0.0, 0.0, -3.0]]
+            )
+        else:
+            lights = PointLights(device=self.device, location=[[0.0, 0.0, -3.0]])
+
+        if random_materials == True:
+
+            if random_shininess == True:
+                shininess = torch.randint(low=64, high=120, size=(1,))
+            else:
+                shininess=64 
+
+            ambient_color = random_rgb(device)
+            diffuse_color = random_rgb(device)
+            specular_color = random_rgb(device)  # Specular can be different or white ([1, 1, 1]) for shiny highlights
+            # Setup materials (you can use the same random colors or choose different ones)
+            material = Materials(
+                device=device,
+                ambient_color=ambient_color,
+                diffuse_color=diffuse_color,
+                specular_color=specular_color,
+                shininess=shininess  
+            )
+
+        else:
+            material = None
 
         renderer = MeshRenderer(
             rasterizer=MeshRasterizer(
                 cameras=cameras, raster_settings=raster_settings
             ),
             shader=SoftPhongShader(
-                device=self.device, cameras=cameras, lights=lights
+                device=self.device, cameras=cameras, lights=lights, materials=material
             ),
         )
 
         images = renderer(self.mesh)
 
+        rgb_tensor = images[0][:, :, :3]
+        alpha_tensor = images[0][:, :, 3]
+
+        # Define the background color (white in this case, normalized to [0, 1])
+        # background_color = torch.tensor([1.0, 1.0, 1.0]).to(self.device)
+
+        # # Expand dimensions to match the image tensor
+        # background_tensor = background_color.unsqueeze(0).unsqueeze(0).expand(rgb_tensor.shape)
+
+        # Composite the RGB values with the background using the alpha channel
+        # composite_tensor = alpha_tensor.unsqueeze(-1) * rgb_tensor + \
+        #                 (1 - alpha_tensor.unsqueeze(-1)) * background_tensor
+
+
         # plt.imshow(images[:, :, :, :3][0])
-        return images[:, :, :, :3][0]
+        # return images[:, :, :, :3][0]
+
+        # print((alpha_tensor[:, :, None] * rgb_tensor - alpha_tensor[:, :, None]  != 0).sum())
+        return alpha_tensor[:, :, None] * rgb_tensor #, (alpha_tensor[:, :, None] * rgb_tensor)  != 0
 
     def _get_rotated_verts(self, verts, R):
         R1 = R[0][:3, 0]
@@ -327,7 +470,7 @@ class InjectedObject:
             ).get_matrix()
             R_final = torch.bmm(rotation[:, :3, :3].to(self.device), self.base_R)
         else:
-            R_final = self.base_R
+            R_final = self.base_R        
         R = R_final[:, :3, :3]
         return R
 
@@ -616,18 +759,79 @@ class InjectedObject:
         bottom_left,
         bottom_right,
         image_shape,
-        path,
-        i,
+        path="",
+        i=-1,
         debug_draw=False,
+        random_colors=True, 
+        random_materials=False, 
+        random_shininess=False
     ):
 
         bbox = torch.stack([bottom_left, bottom_right, top_left, top_right])
+        bbox_center = (top_left + bottom_right) / 2
+        cloned_origin = bbox.clone()
         angle = find_angle_from_bbox(
             top_left, bottom_left, top_right, bottom_right, degrees=True
         )
+
+        print(f"bbox before rotation - {bbox}")
         bbox = self.rotate_pixels(
-            bbox.to(torch.float32), theta=torch.tensor([(np.pi * angle) / 180])
+            bbox.to(torch.float32), theta=torch.tensor([(np.pi * angle) / 180]),
+              center=(top_left + bottom_right) / 2
         )  # now the bbox is axis aligned
+
+        print(f"bbox after rotation - {bbox}")
+
+        # if (bbox < 0).sum() > 0:
+        #     return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros((1024, 1024, 1), dtype=np.uint8)
+        
+        def fix_bbox(bbox):
+
+            bl, br, tl, tr = bbox
+            bottom_y = max(bl[0], br[0])
+            top_y = min(tl[0], tr[0])
+            left_x = min(bl[1], tl[1])
+            right_x = max(br[1], tr[1])
+
+            bbox[0][0] = bottom_y
+            bbox[0][1] = left_x
+
+            bbox[1][0] = bottom_y
+            bbox[1][1] = right_x
+
+            bbox[2][0] = top_y
+            bbox[2][1] = left_x
+
+            bbox[3][0] = top_y
+            bbox[3][1] = right_x
+            return bbox
+    
+        bbox = fix_bbox(bbox=bbox)
+
+        dx, dy = (bbox[1] - bbox[0])[1].item(), (bbox[0] - bbox[2])[0].item()
+
+        if self.obj_name == 'TruckCGTrader':
+            if dx > dy:
+                base_rotation_angle = 90
+                self.natural_aspect_ratio = 1 / self.natural_aspect_ratio
+                rotation = RotateAxisAngle(
+                        angle=base_rotation_angle, axis='Y'
+                    ).get_matrix()
+                self.mesh = load_objs_as_meshes([self.obj_file_path], device=self.device)
+                self.mesh._verts_list[0] = (self.mesh._verts_list[0] @ rotation[:, :3, :3].to(self.device))[0]
+                self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
+
+        if self.obj_name == "Container":
+            if dy > dx:
+                base_rotation_angle = -90
+                self.natural_aspect_ratio = 1 / self.natural_aspect_ratio
+                rotation = RotateAxisAngle(
+                        angle=base_rotation_angle, axis='Y'
+                    ).get_matrix()
+                self.mesh = load_objs_as_meshes([self.obj_file_path], device=self.device)
+                self.mesh._verts_list[0] = (self.mesh._verts_list[0] @ rotation[:, :3, :3].to(self.device))[0]
+                self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
+
 
         R, T, extreme_pixels, aspect_ratio = self.find_R_T_for_injection(
             top_left=bbox[2],
@@ -638,22 +842,115 @@ class InjectedObject:
             return_aspect_ratio=True,
         )
 
+        print(bbox)
+
         image = self.render_mesh(
-            angle=angle, T_z=3, T=T, R=self.base_R, aspect_ratio=aspect_ratio
+            angle=angle, T_z=3, T=T, R=self.base_R, aspect_ratio=aspect_ratio, random_colors=random_colors, random_materials=random_materials, random_shininess=random_shininess
         )
+        image_test = image.clone()
 
-        image = image.permute(2, 0, 1)
-        image = torchvision.transforms.functional.rotate(image, angle.item(), fill=1)
-        image = image.permute(1, 2, 0)
+
+
+
+        def rotate_patch(image, angle, center, patch_bbox, bbox_coordinates):
+            import torchvision.transforms.functional as TF
+            from math import ceil, sqrt
+            patch_bbox = [int(coord) for coord in patch_bbox]
+                # Calculate the diagonal length of the patch (the longest possible dimension after rotation)
+
+            # Check if image is a PIL Image or a torch tensor
+            if isinstance(image, torch.Tensor):
+                # Extract the patch from the image using the bounding box coordinates
+                patch = image[patch_bbox[1]:patch_bbox[3], patch_bbox[0]:patch_bbox[2], :]
+            else:
+                # For PIL Image, use PIL's crop method
+                patch = image.crop(patch_bbox)
+
+            height, width = patch.shape[:2]
+            diagonal_length = ceil(sqrt(height**2 + width**2))
+            padding_size = (diagonal_length - max(height, width)) // 2
+
+
+            padding = [int(abs(height - width) / 2) + padding_size , padding_size, int(abs(height - width) / 2) + 1 + padding_size, padding_size] if height > width else  [padding_size, int(abs(height - width) / 2) + padding_size, padding_size, int(abs(height - width) / 2) + 1 + padding_size]
+            # Convert the center from bbox-relative to patch-relative
+            # patch_center = ((center[0] - patch_bbox[0]).item(), (center[1] - patch_bbox[1]).item())
+
+
+            # work_with = TF.pad(image[None, :, :, :].permute(0, 3, 1, 2), padding=[500, 500, 500, 500], fill=1 )
+            # new_old = TF.rotate(work_with[0] ,
+            #                            angle.item(), fill=0, center=((center[0] - patch_bbox[0]).item(), (center[1] - patch_bbox[1]).item())).permute(1, 2, 0)
+
+
+
+            patch = TF.pad(patch[None, :, :, :].permute(0, 3, 1, 2),padding , fill=0)[0].permute(1, 2, 0)
+
+            # Rotate the extracted patch
+            rotated_patch = TF.rotate(patch.permute(2, 0, 1),
+                                       angle.item(), fill=0).permute(1, 2, 0)
+
+            nonzero_pixels = torch.any(rotated_patch  > 0, dim=-1)
+            nonzero_indices = torch.nonzero(nonzero_pixels)
+            min_y, min_x = torch.min(nonzero_indices, dim=0).values
+            max_y, max_x = torch.max(nonzero_indices, dim=0).values
+            rotated_patch = rotated_patch[min_y:max_y, min_x:max_x, :]
+
+            origin_x_max, origin_x_min, origin_y_max, origin_y_min = min(bbox_coordinates[:, 1].max(), torch.tensor([1024])), max(bbox_coordinates[:, 1].min(), torch.tensor([0])), min(bbox_coordinates[:, 0].max(), torch.tensor([1024])), max(bbox_coordinates[:, 0].min(), torch.tensor([0]))
+
+            if origin_x_min == 0:
+                x_bound = (rotated_patch.shape[1] - (origin_x_max - origin_x_min).item(), rotated_patch.shape[1])
+            
+            else:
+                x_bound = (0, (origin_x_max - origin_x_min).item())
+
+
+            if origin_y_min == 0:
+                y_bound = (rotated_patch.shape[0] - (origin_y_max - origin_y_min).item(), rotated_patch.shape[0])
+            else:
+                y_bound = (0, (origin_y_max - origin_y_min).item())
+
+            prev = rotated_patch.clone()
+            rotated_patch = rotated_patch[int(y_bound[0]):int(y_bound[1]), int(x_bound[0]):int(x_bound[1]), :]
+            # For torch tensor, place the rotated patch back into the image tensor
+            if isinstance(image, torch.Tensor):
+                new_image = image.clone()
+                new_image[int(origin_y_min.item()):int(origin_y_max.item()), int(origin_x_min.item()):int(origin_x_max.item()), :] = rotated_patch
+            else:
+                # For PIL image, paste the rotated patch back into the image
+                new_image = image.copy()
+                new_image.paste(rotated_patch, box=patch_bbox)
+
+            return new_image, image[patch_bbox[1]:patch_bbox[3], patch_bbox[0]:patch_bbox[2], :]
+
+
+        nonzero_pixels = torch.any(image_test > 0, dim=-1)
+        nonzero_indices = torch.nonzero(nonzero_pixels)
+        min_y, min_x = torch.min(nonzero_indices, dim=0).values
+        max_y, max_x = torch.max(nonzero_indices, dim=0).values
+        min_y, min_x, max_y, max_x
+
+        
+
+        # bbox = torch.tensor([[max_y, min_x], [max_y, max_x], [min_y, min_x], [min_y, max_x]]).to(image.device).to(torch.int32)
+        # print(bbox)
+        bbox_rotate = (min_x.item() - 1, min_y.item() - 1, max_x.item() + 1, max_y.item() + 1)
+        image, patch = rotate_patch(image_test, angle, bbox_center, bbox_rotate, cloned_origin)
+
+
+
+        # segmantation_mask = segmantation_mask.cpu().numpy().astype(np.uint8)
+        # image = image.permute(2, 0, 1)
+        # image = torchvision.transforms.functional.rotate(image, angle.item(), fill=0, center=bbox_center.tolist())
+        # image = image.permute(1, 2, 0)
+        # this order is important 
+        segmantation_mask = (image[:, :, 0] != 0).cpu().numpy().astype(np.uint8)[:, :, None]
         image = (image * 255).cpu().numpy().astype(np.uint8)
-
-        segmantation_mask = (image != 255).astype(np.uint8)
         # image = np.transpose(image, (2, 0, 1))
 
         bbox = torch.stack([bottom_left, bottom_right, top_left, top_right])
         angle = angle.item()
         # Image.fromarray(image).save(f'{path}/bbox_{i}_angle{angle:.1f}.png')
         if debug_draw:
+            assert path != "" and i != -1, "please add i and path"
             draw_pixels(
                 image,
                 bbox[:, 0].numpy().astype(np.int32),
@@ -668,4 +965,27 @@ class InjectedObject:
         # alpha_chanel = segmantation_mask[:, :, 0][:, :, None] * 255
         # rgba = np.dstack([image, alpha_chanel])
 
+        if self.obj_name == 'TruckCGTrader': # reverse thr process 
+            if dx > dy:
+                base_rotation_angle= -90
+                self.natural_aspect_ratio = 1 / self.natural_aspect_ratio
+                rotation = RotateAxisAngle(
+                        angle=base_rotation_angle, axis='Y'
+                    ).get_matrix()
+                self.mesh = load_objs_as_meshes([self.obj_file_path], device=self.device)
+                self.mesh._verts_list[0] = (self.mesh._verts_list[0] @ rotation[:, :3, :3].to(self.device))[0]
+                self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
+
+        if self.obj_name == "Container":
+            if dy > dx:
+                base_rotation_angle = 90
+                self.natural_aspect_ratio = 1 / self.natural_aspect_ratio
+                rotation = RotateAxisAngle(
+                        angle=base_rotation_angle, axis='Y'
+                    ).get_matrix()
+                self.mesh = load_objs_as_meshes([self.obj_file_path], device=self.device)
+                self.mesh._verts_list[0] = (self.mesh._verts_list[0] @ rotation[:, :3, :3].to(self.device))[0]
+                self.verts = self.mesh.verts_packed()  # Get the vertices of the mesh
+
+                
         return image, segmantation_mask
