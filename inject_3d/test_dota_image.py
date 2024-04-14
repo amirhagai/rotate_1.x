@@ -162,8 +162,6 @@ def parse_one_image(
 
 
     for i in tqdm(range(len(bboxes))):
-        if i <= 71:
-            continue
 
         bbox = torch.tensor(sort_bbox(bboxes[i])).to(torch.float32)
         corners = bbox.detach().cpu().numpy()
