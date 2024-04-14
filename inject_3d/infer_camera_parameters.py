@@ -768,22 +768,23 @@ class InjectedObject:
     ):
 
         bbox = torch.stack([bottom_left, bottom_right, top_left, top_right])
+        
         bbox_center = (top_left + bottom_right) / 2
         cloned_origin = bbox.clone()
         angle = find_angle_from_bbox(
             top_left, bottom_left, top_right, bottom_right, degrees=True
         )
 
-        print(f"bbox before rotation - {bbox}")
+        # print(f"bbox before rotation - {bbox}")
         bbox = self.rotate_pixels(
             bbox.to(torch.float32), theta=torch.tensor([(np.pi * angle) / 180]),
               center=(top_left + bottom_right) / 2
         )  # now the bbox is axis aligned
 
-        print(f"bbox after rotation - {bbox}")
+        # print(f"bbox after rotation - {bbox}")
 
-        # if (bbox < 0).sum() > 0:
-        #     return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros((1024, 1024, 1), dtype=np.uint8)
+        if (bbox < 0).sum() > 0:
+            return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros((1024, 1024, 1), dtype=np.uint8)
         
         def fix_bbox(bbox):
 
@@ -842,7 +843,7 @@ class InjectedObject:
             return_aspect_ratio=True,
         )
 
-        print(bbox)
+        # print(bbox)
 
         image = self.render_mesh(
             angle=angle, T_z=3, T=T, R=self.base_R, aspect_ratio=aspect_ratio, random_colors=random_colors, random_materials=random_materials, random_shininess=random_shininess
@@ -930,13 +931,19 @@ class InjectedObject:
         nonzero_indices = torch.nonzero(nonzero_pixels)
         min_y, min_x = torch.min(nonzero_indices, dim=0).values
         max_y, max_x = torch.max(nonzero_indices, dim=0).values
-        min_y, min_x, max_y, max_x
+        min_y, min_x, max_y, max_x = min_y.item(), min_x.item(), max_y.item(), max_x.item() 
 
         
 
         # bbox = torch.tensor([[max_y, min_x], [max_y, max_x], [min_y, min_x], [min_y, max_x]]).to(image.device).to(torch.int32)
         # print(bbox)
-        bbox_rotate = (min_x.item() - 1, min_y.item() - 1, max_x.item() + 1, max_y.item() + 1)
+
+        bbox_rotate = (
+                        min_x - 1 if min_x > 1 else 0,
+                        min_y - 1 if min_y > 1 else 0,
+                        max_x + 1 if max_x < 1024 else 1024,
+                        max_y + 1 if max_y < 1024 else 1024
+                    )
         image, patch = rotate_patch(image_test, angle, bbox_center, bbox_rotate, cloned_origin)
 
 
@@ -948,7 +955,7 @@ class InjectedObject:
         # this order is important 
         segmantation_mask = (image[:, :, 0] != 0).cpu().numpy().astype(np.uint8)[:, :, None]
         image = (image * 255).cpu().numpy().astype(np.uint8)
-        draw_pixels(image, cloned_origin[:, 0].cpu().numpy().astype(np.int16), cloned_origin[:, 1].cpu().numpy().astype(np.int16), 5, [255, 0, 0])
+        # draw_pixels(image, cloned_origin[:, 0].cpu().numpy().astype(np.int16), cloned_origin[:, 1].cpu().numpy().astype(np.int16), 5, [255, 0, 0])
         # image = np.transpose(image, (2, 0, 1))
 
         bbox = torch.stack([bottom_left, bottom_right, top_left, top_right])

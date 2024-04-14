@@ -162,6 +162,8 @@ def parse_one_image(
 
 
     for i in tqdm(range(len(bboxes))):
+        if i <= 71:
+            continue
 
         bbox = torch.tensor(sort_bbox(bboxes[i])).to(torch.float32)
         corners = bbox.detach().cpu().numpy()
@@ -177,7 +179,7 @@ def parse_one_image(
             random_shininess=False
         )
 
-        Image.fromarray(image).save(f"{gif_images_path}/{i}_{image_name}")
+        # Image.fromarray(image).save(f"{gif_images_path}/{i}_{image_name}")
 
 
         jaccard_index, mask = get_jaccard_ind(
@@ -194,8 +196,12 @@ def parse_one_image(
 
 
     jackards = np.array(jackards)
+
     sorted_jackards_indecis = np.argsort(jackards)
+    
     for j, i in enumerate(sorted_jackards_indecis[::-1]):
+        if jackards[i] < 0.6:
+            continue
         yuv_img = np.array(Image.fromarray(images[i]).convert('YCbCr'))
         yuv_origin = np.array(Image.fromarray((segs[i]) * dota_np).convert('YCbCr'))
         new_obj = np.concatenate([yuv_origin[:, :, 0][:, :, None] , yuv_img[:, :, 1][:, :, None], yuv_img[:, :, 2][:, :, None]], axis=2).astype(np.uint8)
@@ -207,6 +213,8 @@ def parse_one_image(
 
     dota_np = np.array(Image.open(f'{image_path}'))
     for j, i in enumerate(sorted_jackards_indecis[::-1]):
+        if jackards[i] < 0.6:
+            continue
         dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
         # Image.fromarray(dota_np).save(f"{gif_images_path}/{i}_{image_name}")
 
@@ -292,8 +300,8 @@ if __name__ == '__main__':
 
     app_path = Path(__file__).parent.parent
     DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
-    obj_filename = os.path.join(DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj')
-    # obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
+    # obj_filename = os.path.join(DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj')
+    obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
 
     images_path = '/app/data/test_injected/finals'
     os.makedirs(images_path, exist_ok=True)
@@ -309,8 +317,8 @@ if __name__ == '__main__':
 
     for filename in os.listdir(images_folder):
         print(f"working on- {filename}")
-        if "P1446__1024__1022___0" not in filename:
-            continue
+        # if "P2014__1024__1648___1797" not in filename:
+            # continue
         process_image(
                     annotations_folder,
                     filename,
