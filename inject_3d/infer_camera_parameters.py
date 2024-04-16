@@ -2,8 +2,8 @@
 import numpy as np
 import torch
 from PIL import Image
-
-
+import matplotlib.pyplot as plt
+from mmrotate.structures.bbox.rotated_boxes import RotatedBoxes
 # Util function for loading meshes
 from pytorch3d.io import load_objs_as_meshes
 from pytorch3d.renderer import (
@@ -24,9 +24,18 @@ from pytorch3d.transforms import RotateAxisAngle
 import torchvision
 from pytorch3d.structures import Pointclouds
 from pathlib import Path
-
+torch.set_printoptions(sci_mode=False)
 IMAGE_SIZE = 1024
 
+def sort_bbox(bbox):
+
+    sorted_by_y = bbox[bbox[:, 0].argsort()]
+    bottom_points = sorted_by_y[:2]
+    bottom_points = bottom_points[bottom_points[:, 1].argsort()]
+    top_points = sorted_by_y[2:]
+    top_points = top_points[top_points[:, 1].argsort()]
+    sorted_bbox = torch.vstack((top_points, bottom_points))
+    return sorted_bbox
 
 def draw_pixels(image, y_pixel_int, x_pixel_int, square_size, paint_color):
     pixels_to_highlight = np.stack((y_pixel_int, x_pixel_int), axis=1)
@@ -768,10 +777,7 @@ class InjectedObject:
 
     def __call__(
         self,
-        top_left,
-        top_right,
-        bottom_left,
-        bottom_right,
+        bbox,
         image_shape,
         path="",
         i=-1,
@@ -781,22 +787,37 @@ class InjectedObject:
         random_shininess=False
     ):
 
-        bbox = torch.stack([bottom_left, bottom_right, top_left, top_right])
+        bbox = torch.tensor(bbox)
+
         
-        bbox_center = (top_left + bottom_right) / 2
-        # print(bbox)
+        # bbox_center = (top_left + bottom_right) / 2
+        # # print(bbox)
+        # cloned_origin = bbox.clone()
+        # angle = find_angle_from_bbox(
+        #     top_left, bottom_left, top_right, bottom_right, degrees=True
+        # )
+
+        # # print(f"bbox before rotation - {bbox}")
+        # bbox = self.rotate_pixels(
+        #     bbox.to(torch.float32), theta=torch.tensor([(np.pi * angle) / 180]),
+        #       center=(top_left + bottom_right) / 2
+        # )  # now the bbox is axis aligned
+
+        # # print(f"bbox after rotation - {bbox}")
+        bbox = torch.tensor(bbox)
         cloned_origin = bbox.clone()
-        angle = find_angle_from_bbox(
-            top_left, bottom_left, top_right, bottom_right, degrees=True
-        )
+        bbox = RotatedBoxes.corner2rbox(bbox)
+        
+        (x, y, w, h, angle) = bbox
+        bbox_center = torch.tensor([y, x])
 
-        # print(f"bbox before rotation - {bbox}")
-        bbox = self.rotate_pixels(
-            bbox.to(torch.float32), theta=torch.tensor([(np.pi * angle) / 180]),
-              center=(top_left + bottom_right) / 2
-        )  # now the bbox is axis aligned
-
-        # print(f"bbox after rotation - {bbox}")
+        angle_ = angle.clone()
+        # (rendering_angle * np.pi) / 180
+        angle_ = angle_ * 180 / np.pi
+        bbox[4] = 0.
+        bbox_xyxy_no_angle = RotatedBoxes.rbox2corner(bbox)
+        bbox= sort_bbox(bbox_xyxy_no_angle)
+        angle = angle_
 
         if (bbox < 0).sum() > 0:
             return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros((1024, 1024, 1), dtype=np.uint8)
@@ -822,7 +843,9 @@ class InjectedObject:
             bbox[3][1] = right_x
             return bbox
     
+        prev = bbox.clone()
         bbox = fix_bbox(bbox=bbox)
+
 
         dx, dy = (bbox[1] - bbox[0])[1].item(), (bbox[0] - bbox[2])[0].item()
 
@@ -977,11 +1000,14 @@ class InjectedObject:
         # draw_pixels(image, cloned_origin[:, 0].cpu().numpy().astype(np.int16), cloned_origin[:, 1].cpu().numpy().astype(np.int16), 5, [255, 0, 0])
         # image = np.transpose(image, (2, 0, 1))
 
-        bbox = torch.stack([bottom_left, bottom_right, top_left, top_right])
-        angle = angle.item()
         # Image.fromarray(image).save(f'{path}/bbox_{i}_angle{angle:.1f}.png')
         if debug_draw:
             assert path != "" and i != -1, "please add i and path"
+            angle = angle.item()
+            bottom_left, bottom_right, top_left, top_right = \
+            cloned_origin[0], cloned_origin[1], cloned_origin[2], cloned_origin[3]
+
+            bbox = torch.stack([bottom_left, bottom_right, top_left, top_right])
             draw_pixels(
                 image,
                 bbox[:, 0].numpy().astype(np.int32),
