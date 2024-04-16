@@ -42,7 +42,7 @@ def draw_pixels(image, y_pixel_int, x_pixel_int, square_size, paint_color):
 def find_angle_from_bbox(
     top_left, bottom_left, top_right, bottom_right, degrees=False
 ):
-
+    
     y1, x1 = top_left
     y2, x2 = top_right
     dx, dy = x2 - x1, y2 - y1
@@ -52,13 +52,27 @@ def find_angle_from_bbox(
         return angle_radians
 
     angle_degrees = np.degrees(angle_radians)
+    # print(f"current angle - {angle_radians}")
+
+
+    # dx2 = top_right[0] - top_left[0]
+    # dy2 = top_right[1] - top_left[1]
+
+    # # Calculate the angle
+    # angle_rad2 = torch.atan2(dy2, dx2)  # This gives the angle in radians
+    # angle_deg = angle_rad2 * 180 / np.pi  # Convert radians to degrees
+
+    # print(f"new angle - {angle_deg}")
+
 
     if dx == 0 and dy > 0:
         angle_degrees = np.array([-90])
     elif dx == 0 and dy < 0:
         angle_degrees = np.array([90])
 
+
     return -angle_degrees
+    # return angle_deg
 
 
 def render_points_only(points, cameras):
@@ -279,7 +293,7 @@ class InjectedObject:
 
         # Function to generate random RGB colors
         def random_rgb(device):
-            color = torch.rand(1, 3, device=device)  + 0.01# Adjust the scaling and shifting factors as needed
+            color = torch.rand(1, 3, device=device)  + 0.01 # Adjust the scaling and shifting factors as needed
             # Ensure the colors are still in the valid range [0, 1]
             color = torch.clamp(color, min=0.01, max=1)
             # color[0, 1] = 0. # delete green channel
@@ -308,7 +322,7 @@ class InjectedObject:
         if random_materials == True:
 
             if random_shininess == True:
-                shininess = torch.randint(low=64, high=120, size=(1,))
+                shininess = torch.randint(low=64, high=5500, size=(1,))
             else:
                 shininess=64 
 
@@ -770,6 +784,7 @@ class InjectedObject:
         bbox = torch.stack([bottom_left, bottom_right, top_left, top_right])
         
         bbox_center = (top_left + bottom_right) / 2
+        # print(bbox)
         cloned_origin = bbox.clone()
         angle = find_angle_from_bbox(
             top_left, bottom_left, top_right, bottom_right, degrees=True
@@ -842,6 +857,9 @@ class InjectedObject:
             image_shape=image_shape,
             return_aspect_ratio=True,
         )
+        if (T[0, 2] < 0):
+            print(T)
+            return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros((1024, 1024, 1), dtype=np.uint8)
 
         # print(bbox)
 
@@ -918,7 +936,8 @@ class InjectedObject:
                 # origin_y_min = origin_y_min  + (origin_y_max - origin_y_min) - rotated_patch.shape[0]  + 1
                 origin_x_max = origin_x_max + rotated_patch.shape[1] - (origin_x_max - origin_x_min)
                 origin_x_min = origin_x_min
-                new_image[int(origin_y_min.item()):int(origin_y_max.item()), int(origin_x_min.item()):int(origin_x_max.item()), :] = rotated_patch
+                rotate_2 = torchvision.transforms.Resize( ( int(origin_y_max.item()) - int(origin_y_min.item()), int(origin_x_max.item()) - int(origin_x_min.item())) )(prev.permute(2, 0, 1)[None, :, :, :])[0].permute(1, 2, 0)
+                new_image[int(origin_y_min.item()):int(origin_y_max.item()), int(origin_x_min.item()):int(origin_x_max.item()), :] = rotate_2 #rotated_patch
             else:
                 # For PIL image, paste the rotated patch back into the image
                 new_image = image.copy()
