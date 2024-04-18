@@ -28,26 +28,34 @@ parser.add_argument(
     'random_colors',
     help='do you want to use random colors?',
     type=str_to_boll,
-    default='1',
+    default='0',
 )
 parser.add_argument(
-    'random_matirels',
+    'random_materials',
     help='do you want to use random matirels?',
     type=str_to_boll,
-    default='1',
+    default='0',
 )
 parser.add_argument(
     'random_shininess',
     help='do you want to use random shininess',
     type=str_to_boll,
-    default='1',
+    default='0',
 )
 parser.add_argument(
-    'save_mid_restuls',
+    'save_median_restuls',
     help='save the midean results',
     type=str_to_boll,
     default='1',
 )
+
+parser.add_argument(
+    'save_ycbcr',
+    help='save the midean results',
+    type=str_to_boll,
+    default='0',
+)
+
 args = parser.parse_args()
 
 torch.set_printoptions(sci_mode=False)
@@ -241,26 +249,27 @@ def parse_one_image(
 
     sorted_jackards_indecis = np.argsort(jackards)
 
-    for j, i in enumerate(sorted_jackards_indecis[::-1]):
-        # if jackards[i] < 0.6:
-        # continue
-        yuv_img = np.array(Image.fromarray(images[i]).convert('YCbCr'))
-        yuv_origin = np.array(
-            Image.fromarray((segs[i]) * dota_np).convert('YCbCr')
-        )
-        new_obj = np.concatenate(
-            [
-                yuv_origin[:, :, 0][:, :, None],
-                yuv_img[:, :, 1][:, :, None],
-                yuv_img[:, :, 2][:, :, None],
-            ],
-            axis=2,
-        ).astype(np.uint8)
-        new_obj_im = Image.fromarray(new_obj, 'YCbCr').convert('RGB')
-        # dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
-        dota_np = (1 - segs[i]) * dota_np + segs[i] * new_obj_im
+    if args.save_ycbcr:
+        for j, i in enumerate(sorted_jackards_indecis[::-1]):
+            # if jackards[i] < 0.6:
+            # continue
+            yuv_img = np.array(Image.fromarray(images[i]).convert('YCbCr'))
+            yuv_origin = np.array(
+                Image.fromarray((segs[i]) * dota_np).convert('YCbCr')
+            )
+            new_obj = np.concatenate(
+                [
+                    yuv_origin[:, :, 0][:, :, None],
+                    yuv_img[:, :, 1][:, :, None],
+                    yuv_img[:, :, 2][:, :, None],
+                ],
+                axis=2,
+            ).astype(np.uint8)
+            new_obj_im = Image.fromarray(new_obj, 'YCbCr').convert('RGB')
+            # dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
+            dota_np = (1 - segs[i]) * dota_np + segs[i] * new_obj_im
 
-    Image.fromarray(dota_np).save(f'{injection_ycbcr_path}/{image_name}')
+        Image.fromarray(dota_np).save(f'{injection_ycbcr_path}/{image_name}')
 
     dota_np = np.array(Image.open(f'{image_path}'))
     for j, i in enumerate(sorted_jackards_indecis[::-1]):
