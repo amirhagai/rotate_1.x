@@ -8,10 +8,11 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cv2
 import os
-import torch.multiprocessing as mp
+# import torch.multiprocessing as mp
 from tqdm import tqdm
-from pathlib import Path
+
 torch.set_printoptions(sci_mode=False)
+
 
 def create_gif(image_folder, int_comp=False):
 
@@ -46,7 +47,7 @@ def create_gif(image_folder, int_comp=False):
 
     # Save the animation
     ani.save(f'{image_folder}/movie.gif', writer='pillow', fps=2)
-    print(f"\n\ngif located at - {image_folder}/movie.gif", end="\n\n")
+    print(f'\n\ngif located at - {image_folder}/movie.gif', end='\n\n')
 
     plt.close(fig)
 
@@ -63,9 +64,6 @@ def draw_pixels(image, y_pixel_int, x_pixel_int, square_size, paint_colors):
         x_end = min(image.shape[1], x + square_size // 2 + 1)
         y_end = min(image.shape[0], y + square_size // 2 + 1)
         image[y_start:y_end, x_start:x_end] = paint_colors[i]
-
-
-
 
 
 def get_pixels_in_oriented_bbox(corners, image_shape):
@@ -119,11 +117,11 @@ def parse_one_image(
     annotation_file_name,
     category='large-vehicle',
 ):
-    
+
     # x = torch.rand(5000, 3)
     image_name = Path(image_path).name
 
-    injection_ycbcr_path = Path(gif_images_path).parent / "ycbcr"
+    injection_ycbcr_path = Path(gif_images_path).parent / 'ycbcr'
     os.makedirs(injection_ycbcr_path, exist_ok=True)
 
     start = torch.cuda.Event(enable_timing=True)
@@ -142,14 +140,15 @@ def parse_one_image(
         # Image.fromarray(dota_np).save(f"{injection_ycbcr_path}/{image_name}")
         # Image.fromarray(dota_np).save(f"{gif_images_path}/{image_name}")
         return
-    
 
-    os.makedirs(Path(gif_images_path).parent / "mid_reults", exist_ok=True)
-    path_for_mid_results = Path(gif_images_path).parent / "mid_reults" / Path(image_name).stem
+    os.makedirs(Path(gif_images_path).parent / 'mid_reults', exist_ok=True)
+    path_for_mid_results = (
+        Path(gif_images_path).parent / 'mid_reults' / Path(image_name).stem
+    )
     os.makedirs(path_for_mid_results, exist_ok=True)
-    
+
     print(f'number of bboxes - {len(bboxes)}')
-    injection = InjectedObject(obj_filename, device="cuda:0")
+    injection = InjectedObject(obj_filename, device='cuda:0')
     torch.cuda.set_device(injection.device)
 
     jackards = []
@@ -157,28 +156,7 @@ def parse_one_image(
     images = []
     segs = []
 
-
     for i in tqdm(range(len(bboxes))):
-
-        # from mmrotate.structures.bbox.rotated_boxes import RotatedBoxes
-
-        # bbox = RotatedBoxes.corner2rbox(torch.tensor(bboxes[12]))
-        # (x, y, w, h, t) = bbox
-        # t_ = t.clone()
-
-        # bbox2_xyxy = RotatedBoxes.rbox2corner(bbox)
-        # bbox[4] = 0.
-        # bbox_xyxy_no_angle = RotatedBoxes.rbox2corner(bbox)
-
-        # bbox_rotated = rotate_pixels(bbox_xyxy_no_angle , -t_, torch.tensor([x, y]))
-
-        # z = bbox2_xyxy - bbox_rotated
-
-        # bbox_rotated_2 = rotate_pixels(bbox2_xyxy , t_, torch.tensor([x, y]))
-        # f = bbox_rotated_2 - bbox_xyxy_no_angle
-
-
-        # # z = sort_bbox_v2(bboxes[12])
 
         bbox = torch.tensor(bboxes[i]).to(torch.float32)
         corners = bbox.detach().cpu().numpy()
@@ -186,16 +164,20 @@ def parse_one_image(
         image, segmantation_mask = injection(
             bbox=bboxes[i],
             image_shape=[3, 1024, 1024],
-            random_colors=True, 
-            random_materials=True, 
-            random_shininess=True
+            random_colors=True,
+            random_materials=True,
+            random_shininess=True,
         )
 
         mid = image.copy()
-        draw_pixels(mid, bbox[:, 0].cpu().numpy().astype(np.int32), bbox[:, 1].cpu().numpy().astype(np.int32), 5, np.array([[255, 0, 0], [255, 0, 0], [255, 0, 0], [255, 0, 0]]))
+        # draw_pixels(mid, bbox[:, 0].cpu().numpy()
+        # .astype(np.int32), bbox[:, 1].cpu().numpy().astype(np.int32), 5,
+        # np.array([[255, 0, 0], [255, 0, 0], [255, 0, 0], [255, 0, 0]]))
 
-        Image.fromarray(mid).save(f"{path_for_mid_results}/{i}.png")
-
+        Image.fromarray(mid).save(f'{path_for_mid_results}/{i}.png')
+        Image.fromarray(segmantation_mask[:, :, 0] * 255).save(
+            f'{path_for_mid_results}/{i}_seg.png'
+        )
 
         jaccard_index, mask = get_jaccard_ind(
             segmantation_mask, corners, [1024, 1024]
@@ -208,32 +190,39 @@ def parse_one_image(
 
         segmantation_mask = segmantation_mask[:, :, 0]
 
-
-
     jackards = np.array(jackards)
 
     sorted_jackards_indecis = np.argsort(jackards)
-    
+
     for j, i in enumerate(sorted_jackards_indecis[::-1]):
         # if jackards[i] < 0.6:
-            # continue
+        # continue
         yuv_img = np.array(Image.fromarray(images[i]).convert('YCbCr'))
-        yuv_origin = np.array(Image.fromarray((segs[i]) * dota_np).convert('YCbCr'))
-        new_obj = np.concatenate([yuv_origin[:, :, 0][:, :, None] , yuv_img[:, :, 1][:, :, None], yuv_img[:, :, 2][:, :, None]], axis=2).astype(np.uint8)
+        yuv_origin = np.array(
+            Image.fromarray((segs[i]) * dota_np).convert('YCbCr')
+        )
+        new_obj = np.concatenate(
+            [
+                yuv_origin[:, :, 0][:, :, None],
+                yuv_img[:, :, 1][:, :, None],
+                yuv_img[:, :, 2][:, :, None],
+            ],
+            axis=2,
+        ).astype(np.uint8)
         new_obj_im = Image.fromarray(new_obj, 'YCbCr').convert('RGB')
         # dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
         dota_np = (1 - segs[i]) * dota_np + segs[i] * new_obj_im
 
-    Image.fromarray(dota_np).save(f"{injection_ycbcr_path}/{image_name}")
+    Image.fromarray(dota_np).save(f'{injection_ycbcr_path}/{image_name}')
 
     dota_np = np.array(Image.open(f'{image_path}'))
     for j, i in enumerate(sorted_jackards_indecis[::-1]):
         # if jackards[i] < 0.6:
-            # continue
+        # continue
         dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
         # Image.fromarray(dota_np).save(f"{gif_images_path}/{i}_{image_name}")
 
-    Image.fromarray(dota_np).save(f"{gif_images_path}/{image_name}")
+    Image.fromarray(dota_np).save(f'{gif_images_path}/{image_name}')
 
     # create_gif(gif_images_path, int_comp=True)
     # dota_np = np.array(Image.open(f"{image_path}"))
@@ -248,7 +237,6 @@ def parse_one_image(
 
     # Waits for everything to finish running
     torch.cuda.synchronize()
-
 
     print(f'elapsed_time - {start.elapsed_time(end) / 1000}')
 
@@ -273,7 +261,7 @@ def process_image(
             gif_images_path=gif_images_path,
             obj_filename=obj_filename,
             annotation_folder_path=annotations_folder,
-            annotation_file_name=f"{Path(annotation_file).stem}.txt",
+            annotation_file_name=f'{Path(annotation_file).stem}.txt',
             category=category,
         )
     torch.cuda.empty_cache()
@@ -309,19 +297,21 @@ def process_image_worker(data):
 
 if __name__ == '__main__':
 
-    print("start")
+    print('start')
 
     # file_name = 'P0005__1024__0___0.txt'
 
     app_path = Path(__file__).parent.parent
     DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
-    # obj_filename = os.path.join(DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj')
-    obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
+    obj_filename = os.path.join(
+        DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj'
+    )
+    # obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
 
     images_path = '/app/data/test_injected/finals'
     os.makedirs(images_path, exist_ok=True)
 
-    gif_images_path = f'/app/data/split_ss_dota/train_injected/images'
+    gif_images_path = '/app/data/split_ss_dota/train_injected/images'
     os.makedirs(gif_images_path, exist_ok=True)
 
     debug_path = f'{images_path}/debug'
@@ -330,25 +320,27 @@ if __name__ == '__main__':
     annotations_folder = '/app/data/split_ss_dota/train/annfiles/'
     images_folder = '/app/data/split_ss_dota/train/images'
 
-    allready_done_images = set(os.listdir('/app/data/split_ss_dota/train_injected/images'))
+    allready_done_images = set(
+        os.listdir('/app/data/split_ss_dota/train_injected/images')
+    )
 
     for filename in os.listdir(images_folder):
 
         # if filename in allready_done_images:
-            # continue
-        
+        # continue
+
         # print(f"working on- {filename}")
         # if "P2710__1024__941___824" not in filename:
-            # continue
+        # continue
         process_image(
-                    annotations_folder,
-                    filename,
-                    images_folder,
-                    gif_images_path,
-                    obj_filename,
-                    )
-    
-        print("done")
+            annotations_folder,
+            filename,
+            images_folder,
+            gif_images_path,
+            obj_filename,
+        )
+
+        print('done')
 
     # bs = 6
 
