@@ -26,6 +26,7 @@ from pytorch3d.structures import Pointclouds
 from pathlib import Path
 import torchvision.transforms.functional as TF
 from math import ceil, sqrt
+
 torch.set_printoptions(sci_mode=False)
 IMAGE_SIZE = 1024
 

@@ -8,8 +8,47 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cv2
 import os
+
 # import torch.multiprocessing as mp
 from tqdm import tqdm
+import argparse
+
+
+def str_to_boll(boll_str):
+    if boll_str == '0':
+        return False
+    elif boll_str == '1':
+        return True
+    else:
+        raise Exception('random should be 0 for False or 1 for True')
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    'random_colors',
+    help='do you want to use random colors?',
+    type=str_to_boll,
+    default='1',
+)
+parser.add_argument(
+    'random_matirels',
+    help='do you want to use random matirels?',
+    type=str_to_boll,
+    default='1',
+)
+parser.add_argument(
+    'random_shininess',
+    help='do you want to use random shininess',
+    type=str_to_boll,
+    default='1',
+)
+parser.add_argument(
+    'save_mid_restuls',
+    help='save the midean results',
+    type=str_to_boll,
+    default='1',
+)
+args = parser.parse_args()
 
 torch.set_printoptions(sci_mode=False)
 
@@ -117,6 +156,7 @@ def parse_one_image(
     annotation_file_name,
     category='large-vehicle',
 ):
+    global args
 
     # x = torch.rand(5000, 3)
     image_name = Path(image_path).name
@@ -164,20 +204,27 @@ def parse_one_image(
         image, segmantation_mask = injection(
             bbox=bboxes[i],
             image_shape=[3, 1024, 1024],
-            random_colors=True,
-            random_materials=True,
-            random_shininess=True,
+            random_colors=args.random_colors,
+            random_materials=args.random_matirels,
+            random_shininess=args.random_shininess,
         )
+        if args.save_mid_restuls is True:
+            mid = image.copy()
+            Image.fromarray(mid).save(f'{path_for_mid_results}/{i}.png')
 
-        mid = image.copy()
-        # draw_pixels(mid, bbox[:, 0].cpu().numpy()
-        # .astype(np.int32), bbox[:, 1].cpu().numpy().astype(np.int32), 5,
-        # np.array([[255, 0, 0], [255, 0, 0], [255, 0, 0], [255, 0, 0]]))
-
-        Image.fromarray(mid).save(f'{path_for_mid_results}/{i}.png')
-        Image.fromarray(segmantation_mask[:, :, 0] * 255).save(
-            f'{path_for_mid_results}/{i}_seg.png'
-        )
+            draw_pixels(
+                mid,
+                bbox[:, 0].cpu().numpy().astype(np.int32),
+                bbox[:, 1].cpu().numpy().astype(np.int32),
+                5,
+                np.array([[255, 0, 0], [255, 0, 0], [255, 0, 0], [255, 0, 0]]),
+            )
+            Image.fromarray(mid).save(
+                f'{path_for_mid_results}/{i}_with bbox.png'
+            )
+            Image.fromarray(segmantation_mask[:, :, 0] * 255).save(
+                f'{path_for_mid_results}/{i}_seg.png'
+            )
 
         jaccard_index, mask = get_jaccard_ind(
             segmantation_mask, corners, [1024, 1024]
