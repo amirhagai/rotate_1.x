@@ -25,35 +25,35 @@ def str_to_boll(boll_str):
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    'random_colors',
+    '--random_colors',
     help='do you want to use random colors?',
     type=str_to_boll,
     default='0',
 )
 parser.add_argument(
-    'random_materials',
+    '--random_materials',
     help='do you want to use random matirels?',
     type=str_to_boll,
     default='0',
 )
 parser.add_argument(
-    'random_shininess',
+    '--random_shininess',
     help='do you want to use random shininess',
     type=str_to_boll,
     default='0',
 )
 parser.add_argument(
-    'save_median_restuls',
+    '--save_median_restuls',
     help='save the midean results',
     type=str_to_boll,
     default='1',
 )
 
 parser.add_argument(
-    'save_ycbcr',
+    '--save_ycbcr',
     help='save the midean results',
     type=str_to_boll,
-    default='0',
+    default='1',
 )
 
 args = parser.parse_args()
@@ -382,8 +382,9 @@ if __name__ == '__main__':
 
     for filename in os.listdir(images_folder):
 
-        # if filename in allready_done_images:
-        # continue
+        if filename in allready_done_images:
+            print(f"skip - {filename}")
+            continue
 
         # print(f"working on- {filename}")
         # if "P2710__1024__941___824" not in filename:
