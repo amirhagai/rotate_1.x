@@ -9,12 +9,14 @@ from mmengine.logging import print_log
 from terminaltables import AsciiTable
 
 
-def tpfp_default(det_bboxes,
-                 gt_bboxes,
-                 gt_bboxes_ignore=None,
-                 iou_thr=0.5,
-                 box_type='rbox',
-                 area_ranges=None):
+def tpfp_default(
+    det_bboxes,
+    gt_bboxes,
+    gt_bboxes_ignore=None,
+    iou_thr=0.5,
+    box_type='rbox',
+    area_ranges=None,
+):
     """Check if detected bboxes are true positive or false positive.
 
     Args:
@@ -37,8 +39,11 @@ def tpfp_default(det_bboxes,
     # an indicator of ignored gts
     det_bboxes = np.array(det_bboxes)
     gt_ignore_inds = np.concatenate(
-        (np.zeros(gt_bboxes.shape[0],
-                  dtype=bool), np.ones(gt_bboxes_ignore.shape[0], dtype=bool)))
+        (
+            np.zeros(gt_bboxes.shape[0], dtype=bool),
+            np.ones(gt_bboxes_ignore.shape[0], dtype=bool),
+        )
+    )
     # stack gt_bboxes and gt_bboxes_ignore for convenience
     gt_bboxes = np.vstack((gt_bboxes, gt_bboxes_ignore))
 
@@ -63,12 +68,12 @@ def tpfp_default(det_bboxes,
 
     if box_type == 'rbox':
         ious = box_iou_rotated(
-            torch.from_numpy(det_bboxes).float(),
-            torch.from_numpy(gt_bboxes).float()).numpy()
+            torch.from_numpy(det_bboxes).float(), torch.from_numpy(gt_bboxes).float()
+        ).numpy()
     elif box_type == 'qbox':
         ious = box_iou_quadri(
-            torch.from_numpy(det_bboxes).float(),
-            torch.from_numpy(gt_bboxes).float()).numpy()
+            torch.from_numpy(det_bboxes).float(), torch.from_numpy(gt_bboxes).float()
+        ).numpy()
     else:
         raise NotImplementedError
     # for each det, the max iou with all gts
@@ -87,8 +92,7 @@ def tpfp_default(det_bboxes,
         for i in sort_inds:
             if ious_max[i] >= iou_thr:
                 matched_gt = ious_argmax[i]
-                if not (gt_ignore_inds[matched_gt]
-                        or gt_area_ignore[matched_gt]):
+                if not (gt_ignore_inds[matched_gt] or gt_area_ignore[matched_gt]):
                     if not gt_covered[matched_gt]:
                         gt_covered[matched_gt] = True
                         tp[k, i] = 1
@@ -106,9 +110,10 @@ def tpfp_default(det_bboxes,
                     pts = bbox.reshape(*bbox.shape[:-1], 4, 2)
                     roll_pts = torch.roll(pts, 1, dims=-2)
                     xyxy = torch.sum(
-                        pts[..., 0] * roll_pts[..., 1] -
-                        roll_pts[..., 0] * pts[..., 1],
-                        dim=-1)
+                        pts[..., 0] * roll_pts[..., 1]
+                        - roll_pts[..., 0] * pts[..., 1],
+                        dim=-1,
+                    )
                     area = 0.5 * torch.abs(xyxy)
                 else:
                     raise NotImplementedError
@@ -153,15 +158,17 @@ def get_cls_results(det_results, annotations, class_id, box_type):
     return cls_dets, cls_gts, cls_gts_ignore
 
 
-def eval_rbbox_map(det_results,
-                   annotations,
-                   scale_ranges=None,
-                   iou_thr=0.5,
-                   use_07_metric=True,
-                   box_type='rbox',
-                   dataset=None,
-                   logger=None,
-                   nproc=4):
+def eval_rbbox_map(
+    det_results,
+    annotations,
+    scale_ranges=None,
+    iou_thr=0.5,
+    use_07_metric=True,
+    box_type='rbox',
+    dataset=None,
+    logger=None,
+    nproc=4,
+):
     """Evaluate mAP of a rotated dataset.
 
     Args:
@@ -201,23 +208,32 @@ def eval_rbbox_map(det_results,
     num_imgs = len(det_results)
     num_scales = len(scale_ranges) if scale_ranges is not None else 1
     num_classes = len(det_results[0])  # positive class num
-    area_ranges = ([(rg[0]**2, rg[1]**2) for rg in scale_ranges]
-                   if scale_ranges is not None else None)
+    area_ranges = (
+        [(rg[0] ** 2, rg[1] ** 2) for rg in scale_ranges]
+        if scale_ranges is not None
+        else None
+    )
 
     pool = get_context('spawn').Pool(nproc)
     eval_results = []
     for i in range(num_classes):
         # get gt and det bboxes of this class
         cls_dets, cls_gts, cls_gts_ignore = get_cls_results(
-            det_results, annotations, i, box_type)
+            det_results, annotations, i, box_type
+        )
 
         # compute tp and fp for each image with multiple processes
         tpfp = pool.starmap(
             tpfp_default,
-            zip(cls_dets, cls_gts, cls_gts_ignore,
+            zip(
+                cls_dets,
+                cls_gts,
+                cls_gts_ignore,
                 [iou_thr for _ in range(num_imgs)],
                 [box_type for _ in range(num_imgs)],
-                [area_ranges for _ in range(num_imgs)]))
+                [area_ranges for _ in range(num_imgs)],
+            ),
+        )
         tp, fp = tuple(zip(*tpfp))
         # calculate gt number of each scale
         # ignored gts or gts beyond the specific scale are not counted
@@ -232,15 +248,17 @@ def eval_rbbox_map(det_results,
                     pts = bbox.reshape(*bbox.shape[:-1], 4, 2)
                     roll_pts = torch.roll(pts, 1, dims=-2)
                     xyxy = torch.sum(
-                        pts[..., 0] * roll_pts[..., 1] -
-                        roll_pts[..., 0] * pts[..., 1],
-                        dim=-1)
+                        pts[..., 0] * roll_pts[..., 1]
+                        - roll_pts[..., 0] * pts[..., 1],
+                        dim=-1,
+                    )
                     gt_areas = 0.5 * torch.abs(xyxy)
                 else:
                     raise NotImplementedError
                 for k, (min_area, max_area) in enumerate(area_ranges):
-                    num_gts[k] += np.sum((gt_areas >= min_area)
-                                         & (gt_areas < max_area))
+                    num_gts[k] += np.sum(
+                        (gt_areas >= min_area) & (gt_areas < max_area)
+                    )
         # sort all det bboxes by score, also sort tp and fp
         cls_dets = np.vstack(cls_dets)
         num_dets = cls_dets.shape[0]
@@ -260,19 +278,22 @@ def eval_rbbox_map(det_results,
             num_gts = num_gts.item()
         mode = 'area' if not use_07_metric else '11points'
         ap = average_precision(recalls, precisions, mode)
-        eval_results.append({
-            'num_gts': num_gts,
-            'num_dets': num_dets,
-            'recall': recalls,
-            'precision': precisions,
-            'ap': ap
-        })
+        eval_results.append(
+            {
+                'num_gts': num_gts,
+                'num_dets': num_dets,
+                'recall': recalls,
+                'precision': precisions,
+                'ap': ap,
+            }
+        )
     pool.close()
     if scale_ranges is not None:
         # shape (num_classes, num_scales)
         all_ap = np.vstack([cls_result['ap'] for cls_result in eval_results])
         all_num_gts = np.vstack(
-            [cls_result['num_gts'] for cls_result in eval_results])
+            [cls_result['num_gts'] for cls_result in eval_results]
+        )
         mean_ap = []
         for i in range(num_scales):
             if np.any(all_num_gts[:, i] > 0):
@@ -286,17 +307,14 @@ def eval_rbbox_map(det_results,
                 aps.append(cls_result['ap'])
         mean_ap = np.array(aps).mean().item() if aps else 0.0
 
-    print_map_summary(
-        mean_ap, eval_results, dataset, area_ranges, logger=logger)
+    print_map_summary(mean_ap, eval_results, dataset, area_ranges, logger=logger)
 
     return mean_ap, eval_results
 
 
-def print_map_summary(mean_ap,
-                      results,
-                      dataset=None,
-                      scale_ranges=None,
-                      logger=None):
+def print_map_summary(
+    mean_ap, results, dataset=None, scale_ranges=None, logger=None
+):
     """Print mAP and results of each class.
 
     A table will be printed to show the gts/dets/recall/AP of each class and
@@ -328,11 +346,13 @@ def print_map_summary(mean_ap,
     recalls = np.zeros((num_scales, num_classes), dtype=np.float32)
     aps = np.zeros((num_scales, num_classes), dtype=np.float32)
     num_gts = np.zeros((num_scales, num_classes), dtype=int)
+    precisions = np.zeros((num_scales, num_classes), dtype=np.float32)
     for i, cls_result in enumerate(results):
         if cls_result['recall'].size > 0:
             recalls[:, i] = np.array(cls_result['recall'], ndmin=2)[:, -1]
         aps[:, i] = cls_result['ap']
         num_gts[:, i] = cls_result['num_gts']
+        precisions[:, i] = cls_result['precision']
 
     if dataset is None:
         label_names = [str(i) for i in range(num_classes)]
@@ -342,15 +362,19 @@ def print_map_summary(mean_ap,
     if not isinstance(mean_ap, list):
         mean_ap = [mean_ap]
 
-    header = ['class', 'gts', 'dets', 'recall', 'ap']
+    header = ['class', 'gts', 'dets', 'recall', 'ap', 'precision'] #  header = ['class', 'gts', 'dets', 'recall', 'ap'] #   
     for i in range(num_scales):
         if scale_ranges is not None:
             print_log(f'Scale range {scale_ranges[i]}', logger=logger)
         table_data = [header]
         for j in range(num_classes):
             row_data = [
-                label_names[j], num_gts[i, j], results[j]['num_dets'],
-                f'{recalls[i, j]:.3f}', f'{aps[i, j]:.3f}'
+                label_names[j],
+                num_gts[i, j],
+                results[j]['num_dets'],
+                f'{recalls[i, j]:.3f}',
+                f'{aps[i, j]:.3f}',
+                f'{precisions[i, j]:.3f}'
             ]
             table_data.append(row_data)
         table_data.append(['mAP', '', '', '', f'{mean_ap[i]:.3f}'])
