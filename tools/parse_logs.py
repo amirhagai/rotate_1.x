@@ -134,7 +134,82 @@ import re
 #                 log_files.append(os.path.join(subdir, file))
 #     return log_files
 
-def parse_detailed_log_file(filepath):
+
+def process_buffer(buffer, data, mAP):
+    for entry in buffer:
+        if entry['epoch'] in mAP and entry['iou_thr'] in mAP[entry['epoch']]:
+            entry['mAP'] = mAP[entry['epoch']][entry['iou_thr']]
+            data.append(entry)
+
+def parse_detailed_log_file_v2(filepath, precision_in_met=False):
+    data = []
+    current_epoch = None
+    iou_thr = None
+    mAP = {}  # To store mAP values for each epoch and IoU
+    buffer = []  # Buffer to store data temporarily
+
+    with open(filepath, 'r') as file:
+        for line in file:
+            if "Epoch(train)" in line:
+                if buffer:
+                    process_buffer(buffer, data, mAP)
+                    buffer = []
+
+                epoch_match = re.search(r"Epoch\(train\)\s*\[(\d+)\]", line)
+                if epoch_match:
+                    current_epoch = int(epoch_match.group(1))
+                    mAP[current_epoch] = {}
+
+            if "iou_thr:" in line:
+                iou_match = re.search(r"iou_thr:\s*(\d+\.\d+)", line)
+                if iou_match:
+                    iou_thr = f'{float(iou_match.group(1)):.1f}'
+
+            if "dota/mAP:" in line and current_epoch is not None:
+                mAP_matches = re.search(r"dota/mAP: (\d+\.\d+).*dota/AP10: (\d+\.\d+).*dota/AP50: (\d+\.\d+).*dota/AP80: (\d+\.\d+)", line)
+                if mAP_matches:
+                    mAP[current_epoch] = {
+                        '0.1': float(mAP_matches.group(2)),
+                        '0.5': float(mAP_matches.group(3)),
+                        '0.8': float(mAP_matches.group(4))
+                    }
+
+            if current_epoch is not None and iou_thr is not None and '|' in line:
+                parts = line.split('|')
+                if "class" in parts[1] or 'mAP' in parts[1]:
+                    continue
+                buffer_entry_size = 7 if precision_in_met else 6
+                if len(parts) < buffer_entry_size :
+                    continue
+
+                if len(parts) > 1:
+                    class_name = parts[1].strip()
+                    if precision_in_met:
+                        gts, dets, recall, ap, precision = map(str.strip, parts[2:buffer_entry_size])
+                    else:
+                        gts, dets, recall, ap = map(str.strip, parts[2:buffer_entry_size])
+                        precision = 0
+                    buffer.append({
+                        'class': class_name,
+                        'epoch': current_epoch,
+                        'iou_thr': iou_thr,
+                        'gts': int(gts),
+                        'dets': int(dets),
+                        'recall': float(recall),
+                        'ap': float(ap),
+                        'precision': float(precision)
+                    })
+
+        process_buffer(buffer, data, mAP)
+
+    df = pd.DataFrame(data)
+    if not precision_in_met:
+        df = df.drop('precision', axis=1)
+    return df
+
+
+
+def parse_detailed_log_file(filepath, precision_in_met=False):
     data = []
     current_epoch = None
     iou_thr = None
@@ -144,7 +219,7 @@ def parse_detailed_log_file(filepath):
     with open(filepath, 'r') as file:
         for line in file:
             # Check for and process epoch changes
-            if "Epoch(val)" in line:
+            if "Epoch(train)" in line:
                 # Flush the buffer if not empty and appropriate mAP is available
                 if buffer:
                     for entry in buffer:
@@ -159,7 +234,7 @@ def parse_detailed_log_file(filepath):
                         enter = False
 
                 # Capture new epoch number
-                epoch_match = re.search(r"Epoch\(val\)\s*\[(\d+)\]", line)
+                epoch_match = re.search(r"Epoch\(train\)\s*\[(\d+)\]", line)
                 if epoch_match:
                     current_epoch = int(epoch_match.group(1))
                     mAP[current_epoch] = {}
@@ -184,16 +259,22 @@ def parse_detailed_log_file(filepath):
             # Capture and buffer data for 'large-vehicle'
             if "large-vehicle" in line and current_epoch is not None and iou_thr is not None:
                 parts = line.split('|')
-                if len(parts) < 6:
+                buffer_entry_size = 7 if precision_in_met else 6
+                if len(parts) < buffer_entry_size :
                     continue
-                gts, dets, recall, ap = map(str.strip, parts[2:6])
+                if precision_in_met:
+                    gts, dets, recall, ap, precision = map(str.strip, parts[2:buffer_entry_size])
+                else:
+                    gts, dets, recall, ap = map(str.strip, parts[2:buffer_entry_size])
+                    precision = 0
                 buffer.append({
                     'epoch': current_epoch,
                     'iou_thr': iou_thr,
                     'gts': int(gts),
                     'dets': int(dets),
                     'recall': float(recall),
-                    'ap': float(ap)
+                    'ap': float(ap),
+                    'precision': float(precision)
                 })
 
         # Process any remaining buffered entries
@@ -201,8 +282,10 @@ def parse_detailed_log_file(filepath):
             if entry['epoch'] in mAP and entry['iou_thr'] in mAP[entry['epoch']]:
                 entry['mAP'] = mAP[entry['epoch']][entry['iou_thr']]
                 data.append(entry)
-
-    return pd.DataFrame(data)
+    df = pd.DataFrame(data)
+    if not precision_in_met:
+        df = df.drop('precision', axis=1)
+    return df
 
 # def plot_class_data(data, class_name):
 #     """ Generate and save plots of metrics over epochs for a specific class. """
@@ -243,56 +326,113 @@ def plot_metrics_single_experiment(data, experiment_name):
 
 
 
-def find_log_files_and_experiments(root_dir):
+def find_log_files_and_experiments(root_dir, rule):
     log_files = {}
     for subdir, dirs, files in os.walk(root_dir):
         for file in files:
-            if file.endswith('.log'):
+            if file.endswith('.log') and rule(subdir):
                 experiment_name = subdir.split('/')[-1]  # Assuming folder name is experiment name
                 experiment_name = experiment_name[:experiment_name.find("_120_epochs")]
                 log_files[os.path.join(subdir, file)] = experiment_name
     return log_files
 
-def plot_metrics_across_files(log_files):
-    fig, axs = plt.subplots(3, 3, figsize=(18, 16))  # 9 plots
-    metrics = ['mAP', 'ap', 'recall']  # Adjust as per available data
+def log_to_df(log_files, metrics):
 
     all_data = []
+    data_all_classes = [[], [], [], [], [], [], [], [], [], [], [], [], [] ,[], []]
+    
 
     for filepath, exp_name in log_files.items():
-        data = parse_detailed_log_file(filepath)
+        data = parse_detailed_log_file(filepath, precision_in_met='precision' in metrics)
+        df_all = parse_detailed_log_file_v2(filepath, precision_in_met='precision' in metrics )
+        dfs = {classname: df_all[df_all['class'] == classname].reset_index(drop=True) for classname in df_all['class'].unique()}
+
+        keys_list = list(dfs.keys())
+        keys_list.sort()
+        for i, key in enumerate(keys_list):
+            dfs[key]['experiment'] = exp_name
+            data_all_classes[i].append(dfs[key])
+        
         data['experiment'] = exp_name
         all_data.append(data)
 
+
     all_data = pd.concat(all_data, ignore_index=True)
+    data_all_classes = [pd.concat(data_all_classes[i], ignore_index=True) for i in range(15)]
+
+    return data_all_classes
 
 
+def plot_metrics_across_files(data_all_classes, metrics, name="", plot_rows=3, plot_col=3, class_key=6):
+    fig, axs = plt.subplots(plot_rows, plot_col, figsize=(18, 16))  # 9 plots
+    # all_data = []
+    # data_all_classes = [[], [], [], [], [], [], [], [], [], [], [], [], [] ,[], []]
+    
 
-    for i, iou in enumerate(sorted(all_data['iou_thr'].unique())):
+    # for filepath, exp_name in log_files.items():
+    #     data = parse_detailed_log_file(filepath, precision_in_met='precision' in metrics)
+    #     df_all = parse_detailed_log_file_v2(filepath, precision_in_met='precision' in metrics )
+    #     dfs = {classname: df_all[df_all['class'] == classname].reset_index(drop=True) for classname in df_all['class'].unique()}
+
+    #     keys_list = list(dfs.keys())
+    #     keys_list.sort()
+    #     for i, key in enumerate(keys_list):
+    #         dfs[key]['experiment'] = exp_name
+    #         data_all_classes[i].append(dfs[key])
+        
+    #     data['experiment'] = exp_name
+    #     all_data.append(data)
+
+
+    # all_data = pd.concat(all_data, ignore_index=True)
+    # data_all_classes = [pd.concat(data_all_classes[i], ignore_index=True) for i in range(15)]
+
+
+    curr_df = data_all_classes[class_key].drop('class', axis=1) 
+
+    for i, iou in enumerate(sorted(curr_df['iou_thr'].unique())):
         for j, metric in enumerate(metrics):
             ax = axs[j, i]
-            for exp_name, group_data in all_data[all_data['iou_thr'] == iou].groupby('experiment'):
-                ax.plot(group_data['epoch'], group_data[metric], label=exp_name, marker='o')
-            title = f'{metric} {iou} Across Experiments' if metric == 'mAP' else f'{metric} {iou} Across Experiments Large-Vehicle'
+            for exp_name, group_data in curr_df[curr_df['iou_thr'] == iou].groupby('experiment'):
+                ax.plot(group_data['epoch'], group_data[metric], label=exp_name[:30], marker='o')
+            title = f'{metric} {iou} Across Experiments' if metric == 'mAP' else f'{metric} {iou} Across Experiments'
             ax.set_title(title)
             ax.set_xlabel('Epoch')
             ax.set_ylabel(f'{metric.capitalize()} Value')
             ax.legend()
             ax.grid(True)
-            ax.set_ylim(bottom=0, top=1)
+            ax.set_ylim(bottom=-.1, top=1.1)
+
 
     plt.tight_layout()
-    plt.savefig('metrics_across_files.png')
-    plt.show()
+    plt.savefig(f'/app/tools/figs/{name}_metrics_across_files.png')
+    plt.savefig(f'/app/tools/figs/{name}_metrics_across_files.pdf', format='pdf', bbox_inches='tight')
+    # plt.show()
+    plt.close()
 
-    for _, exp_name in log_files.items():
-        plot_metrics_single_experiment(data=all_data, experiment_name=exp_name)
+    # for _, exp_name in log_files.items():
+    #     plot_metrics_single_experiment(data=all_data, experiment_name=exp_name)
 
 def main(root_directory):
 
+    keys = ['baseball-diamond', 'basketball-court', 'bridge', 'ground-track-field', 'harbor', 'helicopter', 'large-vehicle', 'plane', 'roundabout', 'ship', 'small-vehicle', 'soccer-ball-field', 'storage-tank', 'swimming-pool', 'tennis-court']
 
-    log_files = find_log_files_and_experiments(root_directory)
-    plot_metrics_across_files(log_files)
+    keys_dict = {int(i):keys[i] for i in range(len(keys))}
+
+    metrics = ['mAP', 'ap', 'recall', 'precision']
+    log_files = find_log_files_and_experiments(root_directory, rule=lambda x: "1200_epochs" in x)
+    data_all_classes = log_to_df(log_files, metrics)
+    for key in keys_dict.keys():
+        plot_metrics_across_files(data_all_classes, metrics=metrics, name=f"{keys[key]}_1200_epochs_test", plot_rows=len(metrics), plot_col=3, class_key=key)
+
+
+    metrics = ['mAP', 'ap', 'recall']
+    log_files = find_log_files_and_experiments(root_directory, rule=lambda x: "120_epochs" in x)
+    
+    log_files = find_log_files_and_experiments(root_directory, rule=lambda x: "120_epochs" in x)
+    data_all_classes = log_to_df(log_files, metrics)
+    for key in keys_dict.keys():
+        plot_metrics_across_files(data_all_classes, metrics=metrics, name=f"{keys[key]}_120_epochs_full", plot_rows=len(metrics), plot_col=3, class_key=key)
 
     # log_files = find_log_files(root_directory)
     # all_data = pd.DataFrame()
