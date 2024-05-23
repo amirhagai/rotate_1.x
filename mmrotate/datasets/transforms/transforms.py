@@ -77,8 +77,6 @@ class BboxColorJitter(BaseTransform):
             bbox_to_transform = results['img'][indecis[0], indecis[1], :].astype(np.float32) / 255.
             transformed_tensor = self.transform_im(torch.tensor(bbox_to_transform.T[:, :, None]))
             results['img'][indecis[0], indecis[1], :] = (transformed_tensor[:, :, 0].T.numpy() * 255).astype(np.uint8)
-            name = results['file_name']
-            Image.fromarray(results['img']).save(f'/app/data/mids/jitter_{name}')
  
         return results
 
@@ -206,7 +204,7 @@ class InjectLargeVehicleData(BaseTransform):
                     axis=2,
                 ).astype(np.uint8)
 
-                new_obj_im = Image.fromarray(new_obj, 'YCbCr').convert('BGR')
+                new_obj_im = np.array(Image.fromarray(new_obj, 'YCbCr'))[:, :, ::-1]
                 dota_np = (1 - sampled_segs[i]) * dota_np + sampled_segs[i] * new_obj_im
 
         elif self.injection_type == "simple":
@@ -215,9 +213,6 @@ class InjectLargeVehicleData(BaseTransform):
                 dota_np = (1 - sampled_segs[i]) * dota_np + sampled_segs[i] * sampled_images[i]
 
         results['img'] = dota_np.astype(np.uint8)
-        name = results['file_name']
-        Image.fromarray(results['img']).save(f'/app/data/mids/inject_{self.injection_type}_{name}')
-
         return results
 
     def __repr__(self):
