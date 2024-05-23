@@ -1,7 +1,6 @@
-# Copyright (c) OpenMMLab. All rights reserved.
 from numbers import Number
 from typing import List, Optional, Union
-
+import random
 import cv2
 import mmcv
 import numpy as np
@@ -10,8 +9,220 @@ from mmcv.transforms.utils import cache_randomness
 from mmdet.structures.bbox import BaseBoxes, get_box_type
 from mmdet.structures.mask import PolygonMasks
 from mmengine.utils import is_list_of
+import torch
+import os
+import re
+from PIL import Image
 
+from torchvision.transforms import Compose, ToTensor, ColorJitter, ToPILImage
 from mmrotate.registry import TRANSFORMS
+from pathlib import Path
+
+
+
+
+@TRANSFORMS.register_module()
+class BboxColorJitter(BaseTransform):
+    """Color jitter only over bboxes
+
+    """
+
+    def __init__(self, prob, brightness=0, contrast=0, saturation=0, hue=0.5, class_num=5 ) -> None:
+        self.prob = prob
+        # self.path = path
+        self.class_num = class_num 
+        self.brightness, self.contrast, self.saturation, self.hue = \
+            brightness, contrast, saturation, hue
+        self.transform_im = \
+                Compose([
+                ColorJitter(
+                brightness=self.brightness, contrast=self.contrast,\
+                      saturation=self.saturation, hue=self.hue),
+
+            ])
+        self.transform_done_im = \
+            ToPILImage()
+    
+    def ann_to_bbox(anno_list):
+        """"
+        this is how the boxes that i get looks like if anno_list is the bbox given by the annotation file
+        """
+        cnt = np.int0(np.array(anno_list).reshape(4, 2))
+        cnt = cnt.reshape((4, 2))
+        rect = cv2.minAreaRect(cnt)
+        return torch.tensor([rect[0][0], rect[0][1], rect[1][0], rect[1][1], np.pi * rect[2] / 180])
+
+
+    def transform(self, results: dict) -> dict:
+    
+        recs = results['gt_bboxes'].tensor
+        labels = results['gt_bboxes_labels']
+        # print(labels, results["img_path"])
+        im_shape = results['img'].shape
+        boxes = []
+        for i, rec in enumerate(recs):
+            if labels[i] == self.class_num and random.random() < self.prob:
+                rec = (
+                    (rec[0].item(), rec[1].item()),
+                    (rec[2].item(), rec[3].item()),
+                        (rec[4].item() * 180 / np.pi)
+                    )         
+                box = cv2.boxPoints(rec)
+                box = np.int0(box)
+                boxes.append(box)
+        if len(boxes) > 0:
+            mask = np.ones(im_shape).astype(np.uint8)
+            cv2.drawContours(mask, boxes, -1, (255, 0, 0), thickness=cv2.FILLED)
+            indecis = np.where(mask == 255)
+            bbox_to_transform = results['img'][indecis[0], indecis[1], :].astype(np.float32) / 255.
+            transformed_tensor = self.transform_im(torch.tensor(bbox_to_transform.T[:, :, None]))
+            results['img'][indecis[0], indecis[1], :] = (transformed_tensor[:, :, 0].T.numpy() * 255).astype(np.uint8)
+            name = results['file_name']
+            Image.fromarray(results['img']).save(f'/app/data/mids/jitter_{name}')
+ 
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        return repr_str
+
+
+@TRANSFORMS.register_module()
+class RemoveClassesAnnotation(BaseTransform):
+    """
+    Remove parts of the classes
+
+    """
+
+    def __init__(self, classes_to_remove) -> None:
+        
+        self.classes = {
+            'plane' : 0,
+            'baseball-diamond' : 1,
+            'bridge' : 2, 
+            'ground-track-field' : 3,
+            'small-vehicle' : 4,
+            'large-vehicle' : 5,
+            'ship' : 6,
+            'tennis-court' : 7,
+            'basketball-court' : 8, 
+            'storage-tank' : 9,
+            'soccer-ball-field' : 10,
+            'roundabout' : 11,
+            'harbor' : 12,
+            'swimming-pool' : 13,
+            'helicopter' :14
+        }
+
+        self.classes_to_remove = np.array([self.classes[class_name] for class_name in classes_to_remove])
+
+
+    def transform(self, results: dict) -> dict:
+        labels = results['gt_bboxes_labels']
+        mask = np.isin(labels, self.classes_to_remove)
+        indices = ~mask
+
+        results['gt_bboxes'].tensor = results['gt_bboxes'].tensor[indices]
+        results['gt_bboxes_labels'] = results['gt_bboxes_labels'][indices]
+        results['gt_ignore_flags'] = results['gt_ignore_flags'][indices]
+        results['instances'] = [results['instances'][i] for i in range(len(results['instances'])) if indices[i]]
+
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        return repr_str
+
+
+@TRANSFORMS.register_module()
+class InjectLargeVehicleData(BaseTransform):
+    """Inject the 3D injection results.
+       the results should be located as explain at base_path
+       this transformaiton does not change the annotations at all
+    Args:
+        prob - probability to inject the data
+        base_path - where does the data located, images should be under 
+                    base_path/results['img_path']/{i}.png
+                    base_path/results['img_path']/{i}_seg.png
+                    
+        type - the type of injection
+    """
+
+    def __init__(self, prob, base_path, injection_type) -> None:
+        self.prob = prob
+        self.base_path = base_path
+        self.injection_type = injection_type
+
+    def get_files(self, folder_path):
+
+        files = os.listdir(folder_path)
+
+        pattern_images = re.compile(r'^-?\d+(\.\d+)?\.png$')
+        matching_images = [file for file in files if re.match(pattern_images, file)]
+
+        pattern_segs = re.compile(r'^-?\d+(\.\d+)?\_seg.png$')
+        matching_segs = [file for file in files if re.match(pattern_segs, file)]
+
+        sampled_images = []
+        sampled_segs = []
+
+        # Iterate through each path in the list
+        for i in range(len(matching_images)):
+            # With probability p, add the path to the sampled list
+            if random.random() < self.prob:
+                sampled_images.append(matching_images[i])
+                sampled_segs.append(matching_segs[i])
+        
+
+        return sampled_images, sampled_segs
+        
+
+    def transform(self, results: dict) -> dict:
+
+
+        folder_path = f"{self.base_path }/mid_reults/{results['file_name'][:-4]}"
+        if not os.path.exists(folder_path):
+            return results
+        sampled_images, sampled_segs = self.get_files(folder_path)
+
+        sampled_images, sampled_segs = [np.array(Image.open(f"{folder_path}/{im}"))[:, :, ::-1] for im in sampled_images], [np.array(Image.open(f"{folder_path}/{im}"))[:, :, None] / 255 for im in sampled_segs]
+
+
+        dota_np = results['img'].astype(np.float32)
+        if self.injection_type == 'ycbcr':
+            for i in range(len(sampled_images)):
+
+                yuv_img = np.array(Image.fromarray(sampled_images[i]).convert('YCbCr'))
+                yuv_origin = np.array(
+                    Image.fromarray((sampled_segs[i] * dota_np).astype(np.uint8)).convert('YCbCr')
+                )
+
+                new_obj = np.concatenate(
+                    [
+                        yuv_origin[:, :, 0][:, :, None],
+                        yuv_img[:, :, 1][:, :, None],
+                        yuv_img[:, :, 2][:, :, None],
+                    ],
+                    axis=2,
+                ).astype(np.uint8)
+
+                new_obj_im = Image.fromarray(new_obj, 'YCbCr').convert('BGR')
+                dota_np = (1 - sampled_segs[i]) * dota_np + sampled_segs[i] * new_obj_im
+
+        elif self.injection_type == "simple":
+
+            for i in range(len(sampled_images)):
+                dota_np = (1 - sampled_segs[i]) * dota_np + sampled_segs[i] * sampled_images[i]
+
+        results['img'] = dota_np.astype(np.uint8)
+        name = results['file_name']
+        Image.fromarray(results['img']).save(f'/app/data/mids/inject_{self.injection_type}_{name}')
+
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        return repr_str
 
 
 @TRANSFORMS.register_module()
