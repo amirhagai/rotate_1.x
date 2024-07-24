@@ -2,6 +2,7 @@
 import numpy as np
 import torch
 from PIL import Image
+import sys
 from mmrotate.structures.bbox.rotated_boxes import RotatedBoxes
 
 # Util function for loading meshes
@@ -821,35 +822,8 @@ class InjectedObject:
                 aspect_ratio,
             )
         return R, torch.tensor([[T_X, T_Y, T_Z]]), extreme_pixels
-
-    def __call__(
-        self,
-        bbox,
-        image_shape,
-        path='',
-        i=-1,
-        debug_draw=False,
-        random_colors=True,
-        random_materials=False,
-        random_shininess=False,
-    ):
-
-        bbox = torch.tensor(bbox)
-
-        # bbox_center = (top_left + bottom_right) / 2
-        # # print(bbox)
-        # cloned_origin = bbox.clone()
-        # angle = find_angle_from_bbox(
-        #     top_left, bottom_left, top_right, bottom_right, degrees=True
-        # )
-
-        # # print(f"bbox before rotation - {bbox}")
-        # bbox = self.rotate_pixels(
-        #     bbox.to(torch.float32), theta=torch.tensor([(np.pi * angle) / 180]),
-        #       center=(top_left + bottom_right) / 2
-        # )  # now the bbox is axis aligned
-
-        # # print(f"bbox after rotation - {bbox}")
+    
+    def param_update(self, bbox, image_shape):
         bbox = torch.tensor(bbox)
         cloned_origin = bbox.clone()
         bbox = RotatedBoxes.corner2rbox(bbox)
@@ -931,35 +905,11 @@ class InjectedObject:
                 self.verts = (
                     self.mesh.verts_packed()
                 )  # Get the vertices of the mesh
+                
+        return bbox, cloned_origin, x, y, w, h, angle, bbox_center, dx, dy
 
-        R, T, extreme_pixels, aspect_ratio = self.find_R_T_for_injection(
-            top_left=bbox[2],
-            top_right=bbox[3],
-            bottom_left=bbox[0],
-            bottom_right=bbox[1],
-            image_shape=image_shape,
-            return_aspect_ratio=True,
-        )
-        if T[0, 2] < 0:
-            print(T)
-            return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros(
-                (1024, 1024, 1), dtype=np.uint8
-            )
-
-        # print(bbox)
-
-        image = self.render_mesh(
-            angle=angle,
-            T_z=3,
-            T=T,
-            R=self.base_R,
-            aspect_ratio=aspect_ratio,
-            random_colors=random_colors,
-            random_materials=random_materials,
-            random_shininess=random_shininess,
-        )
-        image_test = image.clone()
-
+    def postprocess_image(self, image_test, angle, bbox_center, cloned_origin):
+    
         def rotate_patch(image, angle, center, patch_bbox, bbox_coordinates):
 
             patch_bbox = [int(coord) for coord in patch_bbox]
@@ -1103,7 +1053,224 @@ class InjectedObject:
         image, patch = rotate_patch(
             image_test, angle, bbox_center, bbox_rotate, cloned_origin
         )
+        return nonzero_pixels, nonzero_indices, min_y, min_x, max_y, max_x, bbox_rotate, image, patch
+        
+            
+        
 
+
+    def __call__(
+        self,
+        bbox,
+        image_shape,
+        path='',
+        i=-1,
+        debug_draw=False,
+        random_colors=True,
+        random_materials=False,
+        random_shininess=False,
+    ):
+
+        
+
+        # bbox_center = (top_left + bottom_right) / 2
+        # # print(bbox)
+        # cloned_origin = bbox.clone()
+        # angle = find_angle_from_bbox(
+        #     top_left, bottom_left, top_right, bottom_right, degrees=True
+        # )
+
+        # # print(f"bbox before rotation - {bbox}")
+        # bbox = self.rotate_pixels(
+        #     bbox.to(torch.float32), theta=torch.tensor([(np.pi * angle) / 180]),
+        #       center=(top_left + bottom_right) / 2
+        # )  # now the bbox is axis aligned
+
+        # # print(f"bbox after rotation - {bbox}")
+        bbox, cloned_origin, x, y, w, h, angle, bbox_center, dx, dy = \
+            self.param_update(bbox, image_shape)
+
+        R, T, extreme_pixels, aspect_ratio = self.find_R_T_for_injection(
+            top_left=bbox[2],
+            top_right=bbox[3],
+            bottom_left=bbox[0],
+            bottom_right=bbox[1],
+            image_shape=image_shape,
+            return_aspect_ratio=True,
+        )
+        
+        # print(f"bbox is - {bbox}")
+        # print(f"T is {T}")
+        
+        # print(f"image shape - {image_shape}")
+        # print(f"angle is - {angle}")
+        # print(f"baseR - {self.base_R}")
+        # print("\n\n\n")
+        if T[0, 2] < 0:
+            print(T)
+            return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros(
+                (1024, 1024, 1), dtype=np.uint8
+            )
+
+        # print(bbox)
+
+        image = self.render_mesh(
+            angle=angle,
+            T_z=3,
+            T=T,
+            R=self.base_R,
+            aspect_ratio=aspect_ratio,
+            random_colors=random_colors,
+            random_materials=random_materials,
+            random_shininess=random_shininess,
+        )
+        image_test = image.clone()
+
+        # def rotate_patch(image, angle, center, patch_bbox, bbox_coordinates):
+
+        #     patch_bbox = [int(coord) for coord in patch_bbox]
+
+        #     # Check if image is a PIL Image or a torch tensor
+        #     if isinstance(image, torch.Tensor):
+        #         # Extract the patch from the image using the bounding box coordinates
+        #         patch = image[
+        #             patch_bbox[1] : patch_bbox[3],
+        #             patch_bbox[0] : patch_bbox[2],
+        #             :,
+        #         ]
+        #     else:
+        #         # For PIL Image, use PIL's crop method
+        #         patch = image.crop(patch_bbox)
+
+        #     height, width = patch.shape[:2]
+        #     diagonal_length = ceil(sqrt(height ** 2 + width ** 2))
+        #     padding_size = (diagonal_length - max(height, width)) // 2
+
+        #     padding = (
+        #         [
+        #             int(abs(height - width) / 2) + padding_size,
+        #             padding_size,
+        #             int(abs(height - width) / 2) + 1 + padding_size,
+        #             padding_size,
+        #         ]
+        #         if height > width
+        #         else [
+        #             padding_size,
+        #             int(abs(height - width) / 2) + padding_size,
+        #             padding_size,
+        #             int(abs(height - width) / 2) + 1 + padding_size,
+        #         ]
+        #     )
+
+        #     patch = TF.pad(
+        #         patch[None, :, :, :].permute(0, 3, 1, 2), padding, fill=0
+        #     )[0].permute(1, 2, 0)
+
+        #     # Rotate the extracted patch
+        #     rotated_patch = TF.rotate(
+        #         patch.permute(2, 0, 1), angle.item(), fill=0
+        #     ).permute(1, 2, 0)
+
+        #     nonzero_pixels = torch.any(rotated_patch > 0, dim=-1)
+        #     nonzero_indices = torch.nonzero(nonzero_pixels)
+        #     min_y, min_x = torch.min(nonzero_indices, dim=0).values
+        #     max_y, max_x = torch.max(nonzero_indices, dim=0).values
+        #     rotated_patch = rotated_patch[min_y:max_y, min_x:max_x, :]
+
+        #     origin_x_max, origin_x_min, origin_y_max, origin_y_min = (
+        #         min(bbox_coordinates[:, 1].max(), torch.tensor([1024])),
+        #         max(bbox_coordinates[:, 1].min(), torch.tensor([0])),
+        #         min(bbox_coordinates[:, 0].max(), torch.tensor([1024])),
+        #         max(bbox_coordinates[:, 0].min(), torch.tensor([0])),
+        #     )
+
+        #     if origin_x_min == 0:
+        #         x_bound = (
+        #             rotated_patch.shape[1]
+        #             - (origin_x_max - origin_x_min).item(),
+        #             rotated_patch.shape[1],
+        #         )
+
+        #     else:
+        #         x_bound = (0, (origin_x_max - origin_x_min).item())
+
+        #     if origin_y_min == 0:
+        #         y_bound = (
+        #             rotated_patch.shape[0]
+        #             - (origin_y_max - origin_y_min).item(),
+        #             rotated_patch.shape[0],
+        #         )
+        #     else:
+        #         y_bound = (0, (origin_y_max - origin_y_min).item())
+
+        #     prev = rotated_patch.clone()
+        #     rotated_patch = rotated_patch[
+        #         int(y_bound[0]) : int(y_bound[1]),
+        #         int(x_bound[0]) : int(x_bound[1]),
+        #         :,
+        #     ]
+        #     # For torch tensor, place the rotated patch back into the image tensor
+        #     if isinstance(image, torch.Tensor):
+        #         new_image = torch.zeros_like(image)
+        #         origin_y_max = (
+        #             origin_y_max
+        #             + rotated_patch.shape[0]
+        #             - (origin_y_max - origin_y_min)
+        #         )  # + 1
+
+        #         origin_x_max = (
+        #             origin_x_max
+        #             + rotated_patch.shape[1]
+        #             - (origin_x_max - origin_x_min)
+        #         )
+        #         origin_x_min = origin_x_min
+        #         rotate_2 = torchvision.transforms.Resize(
+        #             (
+        #                 int(origin_y_max.item()) - int(origin_y_min.item()),
+        #                 int(origin_x_max.item()) - int(origin_x_min.item()),
+        #             )
+        #         )(prev.permute(2, 0, 1)[None, :, :, :])[0].permute(1, 2, 0)
+        #         new_image[
+        #             int(origin_y_min.item()) : int(origin_y_max.item()),
+        #             int(origin_x_min.item()) : int(origin_x_max.item()),
+        #             :,
+        #         ] = rotate_2  # rotated_patch
+        #     else:
+        #         # For PIL image, paste the rotated patch back into the image
+        #         new_image = image.copy()
+        #         new_image.paste(rotated_patch, box=patch_bbox)
+
+        #     return (
+        #         new_image,
+        #         image[
+        #             patch_bbox[1] : patch_bbox[3],
+        #             patch_bbox[0] : patch_bbox[2],
+        #             :,
+        #         ],
+        #     )
+
+        # nonzero_pixels = torch.any(image_test > 0, dim=-1)
+        # nonzero_indices = torch.nonzero(nonzero_pixels)
+        # min_y, min_x = torch.min(nonzero_indices, dim=0).values
+        # max_y, max_x = torch.max(nonzero_indices, dim=0).values
+        # min_y, min_x, max_y, max_x = (
+        #     min_y.item(),
+        #     min_x.item(),
+        #     max_y.item(),
+        #     max_x.item(),
+        # )
+
+        # bbox_rotate = (
+        #     min_x - 1 if min_x > 1 else 0,
+        #     min_y - 1 if min_y > 1 else 0,
+        #     max_x + 1 if max_x < 1024 else 1024,
+        #     max_y + 1 if max_y < 1024 else 1024,
+        # )
+        # image, patch = rotate_patch(
+        #     image_test, angle, bbox_center, bbox_rotate, cloned_origin
+        # )
+
+        nonzero_pixels, nonzero_indices, min_y, min_x, max_y, max_x, bbox_rotate, image, patch = self.postprocess_image(image_test, angle, bbox_center, cloned_origin)
         segmantation_mask = (
             (image[:, :, 0] != 0).cpu().numpy().astype(np.uint8)[:, :, None]
         )

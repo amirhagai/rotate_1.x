@@ -269,7 +269,7 @@ if __name__ == '__main__':
 
     # Set paths
     DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
-    obj_filename = os.path.join(DATA_DIR, 'meshes/Container.obj')
+    obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
 
     # Load obj file
     mesh = load_objs_as_meshes([obj_filename], device=device)

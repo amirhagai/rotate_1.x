@@ -1,4 +1,4 @@
-from parse_dota_file import parse_one_file
+from parse_dota_file import parse_one_file, get_boxes
 from infer_camera_parameters import InjectedObject
 import torch
 from pathlib import Path
@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cv2
 import os
+from pytorch3d.io import load_objs_as_meshes
+import random
 
 # import torch.multiprocessing as mp
 from tqdm import tqdm
@@ -34,13 +36,13 @@ parser.add_argument(
     '--random_materials',
     help='do you want to use random matirels?',
     type=str_to_boll,
-    default='1',
+    default='0',
 )
 parser.add_argument(
     '--random_shininess',
     help='do you want to use random shininess',
     type=str_to_boll,
-    default='1',
+    default='0',
 )
 parser.add_argument(
     '--save_median_restuls',
@@ -53,7 +55,7 @@ parser.add_argument(
     '--save_ycbcr',
     help='save the midean results',
     type=str_to_boll,
-    default='1',
+    default='0',
 )
 
 args = parser.parse_args()
@@ -163,6 +165,7 @@ def parse_one_image(
     annotation_folder_path,
     annotation_file_name,
     category='large-vehicle',
+    return_T=False
 ):
     global args
 
@@ -177,12 +180,18 @@ def parse_one_image(
 
     start.record()
 
-    bboxes = parse_one_file(
-        folder_path=annotation_folder_path,
-        file_name=annotation_file_name,
-        category=category,
-    )
+    # bboxes = parse_one_file(
+    #     folder_path=annotation_folder_path,
+    #     file_name=annotation_file_name,
+    #     category=category,
+    # )
 
+    bboxes = get_boxes(
+                folder_path=annotation_folder_path,
+                file_name=annotation_file_name,
+                category='small-vehicle',
+                unwanted_category='large-vehicle'
+            )
     dota_np = np.array(Image.open(f'{image_path}'))
     if len(bboxes) == 0:
         # Image.fromarray(dota_np).save(f"{injection_ycbcr_path}/{image_name}")
@@ -288,13 +297,13 @@ def parse_one_image(
     #         masks[i][:, :, None] * 255
     #     )
     # Image.fromarray(dota_np).save(f'{gif_images_path}/basic.png')
-    print('done')
+    print('done one image')
     end.record()
 
     # Waits for everything to finish running
     torch.cuda.synchronize()
 
-    print(f'elapsed_time - {start.elapsed_time(end) / 1000}')
+    print(f'elapsed_time - {start.elapsed_time(end) / 1000}\n\n\n')
 
 
 def process_image(
@@ -351,8 +360,315 @@ def process_image_worker(data):
     )
 
 
-if __name__ == '__main__':
 
+def find_bbox_properties(image):
+    # Read the image
+    
+
+    # Find contours
+    
+    contours, _ = cv2.findContours(image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Assume the largest contour is the one encompassing the bounding box
+    contour = max(contours, key=cv2.contourArea)
+    
+    # Compute the minimum area rectangle
+    rect = cv2.minAreaRect(contour)
+    center, size, angle = rect
+    
+    # Get the corners of the rectangle
+    box = cv2.boxPoints(rect)
+    box = np.int0(box)  # Convert to integer
+    
+    # color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    # cv2.drawContours(color_image, [box], -1, (1, 0, 0), thickness=-1)
+    # x = np.hstack([color_image[:, :, 0], image[:, :, 0], np.abs(color_image[:, :, 0].astype(np.float32) - image[:, :, 0].astype(np.float32)).astype(np.uint8)])
+    
+    return center, size, angle, box
+
+
+
+def inject_random_location():
+    global args
+    print('start')
+
+    # file_name = 'P0005__1024__0___0.txt'
+
+    app_path = Path(__file__).parent.parent
+    DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
+    # obj_filename = os.path.join(
+        # DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj'
+    # )
+    obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
+
+    images_path = '/app/data/test_injected/finals'
+    os.makedirs(images_path, exist_ok=True)
+
+    gif_images_path = '/app/data/split_ss_dota/train_injected_container/images'
+    os.makedirs(gif_images_path, exist_ok=True)
+
+    debug_path = f'{images_path}/debug'
+    os.makedirs(debug_path, exist_ok=True)
+
+    annotations_folder = '/app/data/split_ss_dota/train/annfiles/'
+    images_folder = '/app/data/split_ss_dota/train/images'
+
+    allready_done_images = set(
+        os.listdir('/app/data/split_ss_dota/train_injected/images')
+    )
+
+    for filename in os.listdir(images_folder):
+
+        # if filename in allready_done_images:
+            # print(f"skip - {filename}")
+            # continue
+
+        # print(f"working on- {filename}")
+        # if "P2710__1024__941___824" not in filename:
+        # continue
+    # Extract the base file name without extension to match the image file
+    
+        #     process_image(
+        #     annotations_folder,
+        #     filename,
+        #     images_folder,
+        #     gif_images_path,
+        #     obj_filename,
+        # )
+
+        annotation_file = filename
+        category = 'small-vehicle'
+        unwanted_category = 'large-vehicle'
+        
+        base_name = os.path.splitext(annotation_file)[0]
+        image_file = os.path.join(images_folder, f'{base_name}.png')
+        os.makedirs(gif_images_path, exist_ok=True)
+
+        # Check if the corresponding image file exists
+        if os.path.exists(image_file):
+
+            image_path=image_file
+            gif_images_path=gif_images_path
+            obj_filename=obj_filename
+            annotation_folder_path=annotations_folder
+            annotation_file_name=f'{Path(annotation_file).stem}.txt'
+            category=category
+
+            
+            
+
+            # x = torch.rand(5000, 3)
+            image_name = Path(image_path).name
+
+            injection_ycbcr_path = Path(gif_images_path).parent / 'ycbcr'
+            os.makedirs(injection_ycbcr_path, exist_ok=True)
+
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+
+            start.record()
+
+            bboxes = get_boxes(
+                folder_path=annotation_folder_path,
+                file_name=annotation_file_name,
+                category=category,
+            )
+
+            dota_np = np.array(Image.open(f'{image_path}'))
+            if len(bboxes) == 0:
+                # Image.fromarray(dota_np).save(f"{injection_ycbcr_path}/{image_name}")
+                # Image.fromarray(dota_np).save(f"{gif_images_path}/{image_name}")
+                continue
+
+            os.makedirs(Path(gif_images_path).parent / 'mid_reults', exist_ok=True)
+            path_for_mid_results = (
+                Path(gif_images_path).parent / 'mid_reults' / Path(image_name).stem
+            )
+            os.makedirs(path_for_mid_results, exist_ok=True)
+
+            print(f'number of bboxes - {len(bboxes)}')
+            injection = InjectedObject(obj_filename, device='cuda:0')
+            torch.cuda.set_device(injection.device)
+
+            jackards = []
+            masks = []
+            images = []
+            segs = []
+
+            Ts = []
+            angles = []
+            for i in tqdm(range(len(bboxes[:5]))):
+                
+                bbox = torch.tensor(bboxes[i]).to(torch.float32)
+                corners = bbox.detach().cpu().numpy()
+                image_shape = [3, 1024, 1024]
+
+                bbox, cloned_origin, x, y, w, h, angle, bbox_center, dx, dy = \
+                    injection.param_update(bbox, image_shape)
+
+                R, T, extreme_pixels, aspect_ratio = injection.find_R_T_for_injection(
+                    top_left=bbox[2],
+                    top_right=bbox[3],
+                    bottom_left=bbox[0],
+                    bottom_right=bbox[1],
+                    image_shape=image_shape,
+                    return_aspect_ratio=True,
+                )
+
+                # image = injection.render_mesh(
+                #     angle=angle,
+                #     T_z=3,
+                #     T=T,
+                #     R=injection.base_R,
+                #     aspect_ratio=aspect_ratio,
+                #     random_colors=args.random_colors,
+                #     random_materials=args.random_materials,
+                #     random_shininess=args.random_shininess,
+                # )
+
+                # image_test = image.clone()
+                # if image.sum() == 0:
+                #     print(f"\n\n\nFATEL!!!!\n\n\n")
+                #     continue
+                # segmantation_mask = (
+                #     (image[:, :, 0] != 0).cpu().numpy().astype(np.uint8)[:, :, None]
+                # )
+            
+                # center, _, _, _ = find_bbox_properties(segmantation_mask)
+                # bbox_center[0] = center[0]
+                # bbox_center[1] = center[1]
+                # nonzero_pixels, nonzero_indices, min_y, min_x, max_y, max_x, bbox_rotate, image, patch = injection.postprocess_image(image_test, torch.tensor([angle]), bbox_center, cloned_origin)
+                
+                # if image.sum() == 0:
+                #     print(f"\n\n\nFATEL!!!! 2222222\n\n\n")
+                #     continue
+                # segmantation_mask = (
+                #     (image[:, :, 0] != 0).cpu().numpy().astype(np.uint8)[:, :, None]
+                # )
+                
+                # center, size, angle, box = find_bbox_properties(segmantation_mask)
+
+                # bbox_new = np.empty(box.shape)
+                # bbox_new[0] = box[3][::-1]
+                # bbox_new[1] = box[2][::-1]
+                # bbox_new[2] = box[0][::-1]
+                # bbox_new[3] = box[1][::-1] # current order, writing order is like bbox
+                
+                if injection.obj_name == 'Container':
+                    if dy > dx:
+                        injection.natural_aspect_ratio = 1 / injection.natural_aspect_ratio
+                        injection.mesh = load_objs_as_meshes(
+                            [injection.obj_file_path], device=injection.device
+                        )
+                        injection.verts = (
+                            injection.mesh.verts_packed()
+                        ) 
+            
+                Ts.append(T)
+                angles.append(angle)
+                
+                        
+                # print(f"bbox is - {bbox}")
+                # print(f"T is {T}")
+                
+                # print(f"image shape - {image_shape}")
+                # print(f"angle is - {angle}")
+                # print(f"baseR - {injection.base_R}")
+                # print("\n\n\n")
+                
+                
+            Ts = np.array(Ts)
+            avg_T = Ts.mean(axis=(0, 1))
+            Tx_max, Tx_min = Ts[:, :, 0].max(), Ts[:, :, 0].min()
+            Ty_max, Ty_min = Ts[:, :, 1].max(), Ts[:, :, 1].min()
+            
+            
+            angles = np.array(angles) 
+            angle_min, angle_max = angles.min(), angles.max()
+            
+            min_value = 2
+            max_value = 50
+            
+            times =  random.randint(min_value, max_value)
+            
+            print(times)
+            for _ in range(times):
+                
+                if injection.obj_name == 'Container':
+                    if dy > dx:
+                        injection.natural_aspect_ratio = 1 / injection.natural_aspect_ratio
+                        injection.mesh = load_objs_as_meshes(
+                            [injection.obj_file_path], device=injection.device
+                        )
+                        injection.verts = (
+                            injection.mesh.verts_packed()
+                        ) 
+                        
+                        
+                size = random.uniform(1.1, 2)
+                angle = random.uniform(angle_min, angle_max)
+                T = np.array([random.uniform(Tx_min, Tx_max), random.uniform(Ty_min, Ty_max), size * avg_T[2]])[None, :]
+                image = injection.render_mesh(
+                    angle=angle,
+                    T_z=3,
+                    T=T,
+                    R=injection.base_R,
+                    aspect_ratio=aspect_ratio,
+                    random_colors=args.random_colors,
+                    random_materials=args.random_materials,
+                    random_shininess=args.random_shininess,
+                )
+                image_test = image.clone()
+                if image.sum() == 0:
+                    print(f"\n\n\nFATEL!!!!\n\n\n")
+                    continue
+                segmantation_mask = (
+                    (image[:, :, 0] != 0).cpu().numpy().astype(np.uint8)[:, :, None]
+                )
+                
+                center, _, _, _ = find_bbox_properties(segmantation_mask)
+                bbox_center[0] = center[0]
+                bbox_center[1] = center[1]
+                f, ax = plt.subplots(1, 6)
+                ax[0].imshow(image.cpu().numpy())
+                nonzero_pixels, nonzero_indices, min_y, min_x, max_y, max_x, bbox_rotate, image, patch = injection.postprocess_image(image_test, torch.tensor([angle]), bbox_center, cloned_origin)
+                ax[1].imshow(image.cpu().numpy())
+                if image.sum() == 0:
+                    print(f"\n\n\nFATEL!!!! 2222222\n\n\n")
+                    continue
+                segmantation_mask = (
+                    (image[:, :, 0] != 0).cpu().numpy().astype(np.uint8)[:, :, None]
+                )
+                
+                center, size, angle_, box = find_bbox_properties(segmantation_mask)
+                
+                x1, y1, x2, y2, x3, y3, x4, y4 = box.reshape(-1)
+                category = 'container'
+                difficult = '0'
+                
+                
+                # bbox_xyxy_no_angle = RotatedBoxes.rbox2corner(bbox)
+                image = (image * 255).cpu().numpy().astype(np.uint8)
+                images.append(images)
+                masks.append(segmantation_mask)
+                
+                
+                if injection.obj_name == 'Container':
+                    if dy > dx:
+                        injection.natural_aspect_ratio = 1 / injection.natural_aspect_ratio
+                        injection.mesh = load_objs_as_meshes(
+                            [injection.obj_file_path], device=injection.device
+                        )
+                        injection.verts = (
+                            injection.mesh.verts_packed()
+                        ) 
+
+        torch.cuda.empty_cache()
+        
+        
+        
+def create_dataset():
+    
     print('start')
 
     # file_name = 'P0005__1024__0___0.txt'
@@ -399,6 +715,10 @@ if __name__ == '__main__':
 
         print('done')
 
+if __name__ == '__main__':
+
+    # create_dataset()
+    inject_random_location()
     # bs = 6
 
     # annotation_files = [
