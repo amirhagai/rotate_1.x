@@ -28,19 +28,19 @@ parser.add_argument(
     '--random_colors',
     help='do you want to use random colors?',
     type=str_to_boll,
-    default='0',
+    default='1',
 )
 parser.add_argument(
     '--random_materials',
     help='do you want to use random matirels?',
     type=str_to_boll,
-    default='0',
+    default='1',
 )
 parser.add_argument(
     '--random_shininess',
     help='do you want to use random shininess',
     type=str_to_boll,
-    default='0',
+    default='1',
 )
 parser.add_argument(
     '--save_median_restuls',
@@ -213,10 +213,10 @@ def parse_one_image(
             bbox=bboxes[i],
             image_shape=[3, 1024, 1024],
             random_colors=args.random_colors,
-            random_materials=args.random_matirels,
+            random_materials=args.random_materials,
             random_shininess=args.random_shininess,
         )
-        if args.save_mid_restuls is True:
+        if args.save_median_restuls is True:
             mid = image.copy()
             Image.fromarray(mid).save(f'{path_for_mid_results}/{i}.png')
 
@@ -359,15 +359,15 @@ if __name__ == '__main__':
 
     app_path = Path(__file__).parent.parent
     DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
-    obj_filename = os.path.join(
-        DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj'
-    )
-    # obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
+    # obj_filename = os.path.join(
+        # DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj'
+    # )
+    obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
 
     images_path = '/app/data/test_injected/finals'
     os.makedirs(images_path, exist_ok=True)
 
-    gif_images_path = '/app/data/split_ss_dota/train_injected/images'
+    gif_images_path = '/app/data/split_ss_dota/train_injected_container/images'
     os.makedirs(gif_images_path, exist_ok=True)
 
     debug_path = f'{images_path}/debug'
@@ -382,9 +382,9 @@ if __name__ == '__main__':
 
     for filename in os.listdir(images_folder):
 
-        if filename in allready_done_images:
-            print(f"skip - {filename}")
-            continue
+        # if filename in allready_done_images:
+            # print(f"skip - {filename}")
+            # continue
 
         # print(f"working on- {filename}")
         # if "P2710__1024__941___824" not in filename:
