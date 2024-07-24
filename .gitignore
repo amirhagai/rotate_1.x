@@ -124,3 +124,10 @@ tmp
 
 # custom
 mmrotate/.mim
+
+*.png
+*.pdf
+*.jpg
+*.jpeg
+mmrotate/3Ddata/
+
