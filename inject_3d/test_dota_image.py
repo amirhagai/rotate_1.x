@@ -445,7 +445,7 @@ def inject_random_location():
         image_file = os.path.join(images_folder, f'{base_name}.png')
 
         # Check if the corresponding image file exists
-        if os.path.exists(f'{saved_data_path_images}/{base_name}.png'):
+        if os.path.exists(f'{saved_data_path_images}/{base_name}.png') and base_name != 'P0388__1024__0___0':
             continue
         
         if os.path.exists(image_file):
@@ -585,15 +585,15 @@ def inject_random_location():
 
             for _ in range(times):
                 
-                if injection.obj_name == 'Container':
-                    if dy > dx:
-                        injection.natural_aspect_ratio = 1 / injection.natural_aspect_ratio
-                        injection.mesh = load_objs_as_meshes(
-                            [injection.obj_file_path], device=injection.device
-                        )
-                        injection.verts = (
-                            injection.mesh.verts_packed()
-                        ) 
+                # if injection.obj_name == 'Container':
+                #     if dy is None or dy > dx:
+                #         injection.natural_aspect_ratio = 1 / injection.natural_aspect_ratio
+                #         injection.mesh = load_objs_as_meshes(
+                #             [injection.obj_file_path], device=injection.device
+                #         )
+                #         injection.verts = (
+                #             injection.mesh.verts_packed()
+                #         ) 
                         
                         
                 size = random.uniform(1.1, 2)
@@ -622,14 +622,18 @@ def inject_random_location():
                     (image[:, :, 0] != 0).cpu().numpy().astype(np.uint8)[:, :, None]
                 )
                 
-                center, _, _, _ = find_bbox_properties(segmantation_mask)
+                center, _, _, b = find_bbox_properties(segmantation_mask)
                 # bbox_center[0] = center[0]
                 # bbox_center[1] = center[1]
                 # f, ax = plt.subplots(1, 6)
                 # ax[0].imshow(image.cpu().numpy())
                 
                 # nonzero_pixels, nonzero_indices, min_y, min_x, max_y, max_x, bbox_rotate, image, patch = injection.postprocess_image(image_test, torch.tensor([angle]), bbox_center, cloned_origin)
-                image_rotataed = rotate_image(image, -angle, center=center)
+                _, _, _, _, _, _, _, _, dx, dy = injection.param_update(b.astype(np.float32), image_shape)
+                if dy > dx :
+                    image_rotataed = rotate_image(image, -angle, center=center)
+                else:
+                    image_rotataed = rotate_image(image, 90+angle, center=center)
                 
                 image = torch.tensor(image_rotataed.astype(np.float32) / 255)
                 # ax[1].imshow(image.cpu().numpy())
@@ -656,16 +660,23 @@ def inject_random_location():
                 images.append(image)
                 masks.append(segmantation_mask)
                 
+                # bbox_new = np.empty(box.shape)
+                # bbox_new[0] = box[3][::-1]
+                # bbox_new[1] = box[2][::-1]
+                # bbox_new[2] = box[0][::-1]
+                # bbox_new[3] = box[1][::-1] # current order, writing order is like bbox
                 
-                if injection.obj_name == 'Container':
-                    if dy > dx:
-                        injection.natural_aspect_ratio = 1 / injection.natural_aspect_ratio
-                        injection.mesh = load_objs_as_meshes(
-                            [injection.obj_file_path], device=injection.device
-                        )
-                        injection.verts = (
-                            injection.mesh.verts_packed()
-                        ) 
+                # _, _, _, _, _, _, _, _, dx, dy = \
+                # injection.param_update(box.astype(np.float32), image_shape)
+                # if injection.obj_name == 'Container':
+                #     if dy is None or dy > dx:
+                #         injection.natural_aspect_ratio = 1 / injection.natural_aspect_ratio
+                #         injection.mesh = load_objs_as_meshes(
+                #             [injection.obj_file_path], device=injection.device
+                #         )
+                #         injection.verts = (
+                #             injection.mesh.verts_packed()
+                #         ) 
             if times > 0:
                 # original_annfile = open(f'/app/data/split_ss_dota/train/annfiles/{base_name}.txt')
                 print("done creation")
@@ -673,16 +684,16 @@ def inject_random_location():
                 masks = np.sum(np.array(masks), axis=0).astype(np.float32)
                 masks[masks > 0] = 1
                 # added_im = (images * masks)
-                # added = (images * masks)
-                # cv2.drawContours(added.astype(np.uint8), boxes, -1, (255, 0, 0), 2)
+                # added = (images * masks).astype(np.uint8)
+                # cv2.drawContours(added, boxes, -1, (255, 0, 0), 2)
                 dota_np = (dota_np.astype(np.float32) * (1 - masks) + (images * masks)).astype(np.uint8)
             else:
                 lines=None
                 
-                Image.fromarray(dota_np).save(f'{saved_data_path_images}/{base_name}.png')
-                
-                save_annotation_file(annotations_folder, annotation_file_name, 
-                                    saved_data_path_annotatioins, base_name, lines=lines)            
+            Image.fromarray(dota_np).save(f'{saved_data_path_images}/{base_name}.png')
+            
+            save_annotation_file(annotations_folder, annotation_file_name, 
+                                saved_data_path_annotatioins, base_name, lines=lines)            
             
             # with open(f'{annotations_folder}/{annotation_file_name}', 'r') as file:
             #     content = file.readlines()
