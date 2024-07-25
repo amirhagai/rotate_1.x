@@ -840,9 +840,10 @@ class InjectedObject:
         angle = angle_
 
         if (bbox < 0).sum() > 0:
-            return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros(
-                (1024, 1024, 1), dtype=np.uint8
-            )
+            # return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros(
+            #     (1024, 1024, 1), dtype=np.uint8
+            # )
+            return None, None, None, None, None, None, None, None, None, None
 
         def fix_bbox(bbox):
 

@@ -387,86 +387,77 @@ def find_bbox_properties(image):
     return center, size, angle, box
 
 
+def rotate_image(image, angle, center=None):
+    height, width = image.shape[:2]
+    if center is None:
+        center = (width // 2, height // 2)
+    rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+    rotated_image = cv2.warpAffine((image.cpu().numpy() * 255).astype(np.uint8), rotation_matrix, (width, height), borderValue=(0,0,0))
+    return rotated_image
+
+
+def save_annotation_file(annotations_folder, annotation_file_name, saved_data_path_annotatioins, base_name,lines=None):
+    with open(f'{annotations_folder}/{annotation_file_name}', 'r') as file:
+        content = file.readlines()
+        file.close()
+        
+    with open(f'{saved_data_path_annotatioins}/{base_name}.txt', 'w') as file:
+        file.writelines(content)  # Write the original content
+        if lines is not None:
+            file.writelines(lines)  # Append a new line
+        file.flush()
+        file.close()
+        # file.write('New line 2\n')    # Append another new line    
+    
 
 def inject_random_location():
     global args
     print('start')
 
-    # file_name = 'P0005__1024__0___0.txt'
-
     app_path = Path(__file__).parent.parent
     DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
-    # obj_filename = os.path.join(
-        # DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj'
-    # )
+
     obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
+    
+    saved_data_path_images = '/app/data/split_ss_dota/added_container/images'
+    saved_data_path_annotatioins = '/app/data/split_ss_dota/added_container/annfiles'
 
-    images_path = '/app/data/test_injected/finals'
-    os.makedirs(images_path, exist_ok=True)
+    os.makedirs(saved_data_path_images, exist_ok=True)
+    os.makedirs(saved_data_path_annotatioins, exist_ok=True)
+    # images_path = '/app/data/test_injected/finals'
+    # os.makedirs(images_path, exist_ok=True)
 
-    gif_images_path = '/app/data/split_ss_dota/train_injected_container/images'
-    os.makedirs(gif_images_path, exist_ok=True)
-
-    debug_path = f'{images_path}/debug'
-    os.makedirs(debug_path, exist_ok=True)
+    # gif_images_path = '/app/data/split_ss_dota/train_injected_container/images'
+    # os.makedirs(gif_images_path, exist_ok=True)
 
     annotations_folder = '/app/data/split_ss_dota/train/annfiles/'
     images_folder = '/app/data/split_ss_dota/train/images'
 
-    allready_done_images = set(
-        os.listdir('/app/data/split_ss_dota/train_injected/images')
-    )
 
     for filename in os.listdir(images_folder):
 
-        # if filename in allready_done_images:
-            # print(f"skip - {filename}")
-            # continue
 
-        # print(f"working on- {filename}")
-        # if "P2710__1024__941___824" not in filename:
-        # continue
-    # Extract the base file name without extension to match the image file
-    
-        #     process_image(
-        #     annotations_folder,
-        #     filename,
-        #     images_folder,
-        #     gif_images_path,
-        #     obj_filename,
-        # )
-
-        annotation_file = filename
+        image_name = filename
         category = 'small-vehicle'
         unwanted_category = 'large-vehicle'
         
-        base_name = os.path.splitext(annotation_file)[0]
+        base_name = os.path.splitext(image_name)[0]
         image_file = os.path.join(images_folder, f'{base_name}.png')
-        os.makedirs(gif_images_path, exist_ok=True)
 
         # Check if the corresponding image file exists
+        if os.path.exists(f'{saved_data_path_images}/{base_name}.png'):
+            continue
+        
         if os.path.exists(image_file):
-
             image_path=image_file
-            gif_images_path=gif_images_path
             obj_filename=obj_filename
             annotation_folder_path=annotations_folder
-            annotation_file_name=f'{Path(annotation_file).stem}.txt'
+            annotation_file_name=f'{Path(image_name).stem}.txt'
             category=category
 
             
-            
-
             # x = torch.rand(5000, 3)
             image_name = Path(image_path).name
-
-            injection_ycbcr_path = Path(gif_images_path).parent / 'ycbcr'
-            os.makedirs(injection_ycbcr_path, exist_ok=True)
-
-            start = torch.cuda.Event(enable_timing=True)
-            end = torch.cuda.Event(enable_timing=True)
-
-            start.record()
 
             bboxes = get_boxes(
                 folder_path=annotation_folder_path,
@@ -476,15 +467,11 @@ def inject_random_location():
 
             dota_np = np.array(Image.open(f'{image_path}'))
             if len(bboxes) == 0:
-                # Image.fromarray(dota_np).save(f"{injection_ycbcr_path}/{image_name}")
-                # Image.fromarray(dota_np).save(f"{gif_images_path}/{image_name}")
+                
+                Image.fromarray(dota_np).save(f'{saved_data_path_images}/{base_name}.png')
+                save_annotation_file(annotations_folder, annotation_file_name, saved_data_path_annotatioins,base_name, lines=None)
                 continue
 
-            os.makedirs(Path(gif_images_path).parent / 'mid_reults', exist_ok=True)
-            path_for_mid_results = (
-                Path(gif_images_path).parent / 'mid_reults' / Path(image_name).stem
-            )
-            os.makedirs(path_for_mid_results, exist_ok=True)
 
             print(f'number of bboxes - {len(bboxes)}')
             injection = InjectedObject(obj_filename, device='cuda:0')
@@ -494,17 +481,22 @@ def inject_random_location():
             masks = []
             images = []
             segs = []
+            lines = []
+            boxes = []
 
             Ts = []
             angles = []
-            for i in tqdm(range(len(bboxes[:5]))):
+            for i in tqdm(range(len(bboxes))):
                 
                 bbox = torch.tensor(bboxes[i]).to(torch.float32)
                 corners = bbox.detach().cpu().numpy()
                 image_shape = [3, 1024, 1024]
 
+
                 bbox, cloned_origin, x, y, w, h, angle, bbox_center, dx, dy = \
                     injection.param_update(bbox, image_shape)
+                if bbox is None:
+                    continue
 
                 R, T, extreme_pixels, aspect_ratio = injection.find_R_T_for_injection(
                     top_left=bbox[2],
@@ -586,12 +578,11 @@ def inject_random_location():
             angles = np.array(angles) 
             angle_min, angle_max = angles.min(), angles.max()
             
-            min_value = 2
-            max_value = 50
-            
-            times =  random.randint(min_value, max_value)
-            
-            print(times)
+            min_value = -5
+            max_value = 5
+            times =  len(Ts) + random.randint(min_value, max_value)
+            times = times if times > 0 else random.randint(-3, 3)
+
             for _ in range(times):
                 
                 if injection.obj_name == 'Container':
@@ -607,7 +598,12 @@ def inject_random_location():
                         
                 size = random.uniform(1.1, 2)
                 angle = random.uniform(angle_min, angle_max)
-                T = np.array([random.uniform(Tx_min, Tx_max), random.uniform(Ty_min, Ty_max), size * avg_T[2]])[None, :]
+                
+                Tx = random.uniform(Tx_min, Tx_max)
+                Ty = random.uniform(Ty_min, Ty_max)
+                Tz = size * avg_T[2]
+                # print(f'Tx- {Tx}, Ty - {Ty}, Tz - {Tz}, angle - {angle}')
+                T = np.array([Tx, Ty, Tz])[None, :]
                 image = injection.render_mesh(
                     angle=angle,
                     T_z=3,
@@ -627,12 +623,16 @@ def inject_random_location():
                 )
                 
                 center, _, _, _ = find_bbox_properties(segmantation_mask)
-                bbox_center[0] = center[0]
-                bbox_center[1] = center[1]
-                f, ax = plt.subplots(1, 6)
-                ax[0].imshow(image.cpu().numpy())
-                nonzero_pixels, nonzero_indices, min_y, min_x, max_y, max_x, bbox_rotate, image, patch = injection.postprocess_image(image_test, torch.tensor([angle]), bbox_center, cloned_origin)
-                ax[1].imshow(image.cpu().numpy())
+                # bbox_center[0] = center[0]
+                # bbox_center[1] = center[1]
+                # f, ax = plt.subplots(1, 6)
+                # ax[0].imshow(image.cpu().numpy())
+                
+                # nonzero_pixels, nonzero_indices, min_y, min_x, max_y, max_x, bbox_rotate, image, patch = injection.postprocess_image(image_test, torch.tensor([angle]), bbox_center, cloned_origin)
+                image_rotataed = rotate_image(image, -angle, center=center)
+                
+                image = torch.tensor(image_rotataed.astype(np.float32) / 255)
+                # ax[1].imshow(image.cpu().numpy())
                 if image.sum() == 0:
                     print(f"\n\n\nFATEL!!!! 2222222\n\n\n")
                     continue
@@ -641,15 +641,19 @@ def inject_random_location():
                 )
                 
                 center, size, angle_, box = find_bbox_properties(segmantation_mask)
+                boxes.append(box.reshape((-1, 1, 2)))
                 
                 x1, y1, x2, y2, x3, y3, x4, y4 = box.reshape(-1)
                 category = 'container'
-                difficult = '0'
+                difficulty = '0'
+                
+                line = f"{float(x1)} {float(y1)} {float(x2)} {float(y2)} {float(x3)} {float(y3)} {float(x4)} {float(y4)} {category} {difficulty}\n"
+                lines.append(line)
                 
                 
                 # bbox_xyxy_no_angle = RotatedBoxes.rbox2corner(bbox)
                 image = (image * 255).cpu().numpy().astype(np.uint8)
-                images.append(images)
+                images.append(image)
                 masks.append(segmantation_mask)
                 
                 
@@ -662,6 +666,34 @@ def inject_random_location():
                         injection.verts = (
                             injection.mesh.verts_packed()
                         ) 
+            if times > 0:
+                # original_annfile = open(f'/app/data/split_ss_dota/train/annfiles/{base_name}.txt')
+                print("done creation")
+                images = np.sum(np.array(images), axis=0).astype(np.float32)
+                masks = np.sum(np.array(masks), axis=0).astype(np.float32)
+                masks[masks > 0] = 1
+                # added_im = (images * masks)
+                # added = (images * masks)
+                # cv2.drawContours(added.astype(np.uint8), boxes, -1, (255, 0, 0), 2)
+                dota_np = (dota_np.astype(np.float32) * (1 - masks) + (images * masks)).astype(np.uint8)
+            else:
+                lines=None
+                
+                Image.fromarray(dota_np).save(f'{saved_data_path_images}/{base_name}.png')
+                
+                save_annotation_file(annotations_folder, annotation_file_name, 
+                                    saved_data_path_annotatioins, base_name, lines=lines)            
+            
+            # with open(f'{annotations_folder}/{annotation_file_name}', 'r') as file:
+            #     content = file.readlines()
+            #     file.close()
+                
+            # with open(f'{saved_data_path_annotatioins}/{base_name}.txt', 'w') as file:
+            #     file.writelines(content)  # Write the original content
+            #     file.write(lines)  # Append a new line
+            #     file.flush()
+            #     file.close()
+                # file.write('New line 2\n')    # Append another new line
 
         torch.cuda.empty_cache()
         
