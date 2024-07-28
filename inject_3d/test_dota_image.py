@@ -445,7 +445,7 @@ def inject_random_location():
         image_file = os.path.join(images_folder, f'{base_name}.png')
 
         # Check if the corresponding image file exists
-        if os.path.exists(f'{saved_data_path_images}/{base_name}.png') and base_name != 'P0388__1024__0___0':
+        if os.path.exists(f'{saved_data_path_images}/{base_name}.png') and base_name is not 'P1462__1024__4944___824':
             continue
         
         if os.path.exists(image_file):
