@@ -59,6 +59,23 @@ def get_boxes(folder_path, file_name, category='small-vehicle', unwanted_categor
                 return []
     return bboxes
 
+def get_raw_bboxes(folder_path, file_name, category='small-vehicle'):
+    bboxes = []
+
+    file_path = os.path.join(folder_path, file_name)
+    with open(file_path, 'r') as file:
+        print(file_path, end='\n\n\n')
+        for line in file:
+            parts = line.strip().split()
+            x1, y1, x2, y2, x3, y3, x4, y4 = map(float, parts[:8])
+            bbox_category, difficult = parts[8], parts[9]
+            if bbox_category == category:
+
+                bbox = [x1, y1, x2, y2, x3, y3, x4, y4]
+                bboxes.append(bbox)
+    return bboxes
+
+
 if __name__ == "__main__":
 
     import os

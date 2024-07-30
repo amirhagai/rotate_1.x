@@ -294,6 +294,7 @@ class InjectedObject:
         random_colors=False,
         random_materials=False,
         random_shininess=False,
+        color_option=1
     ):
         global IMAGE_SIZE
         R_, T_ = look_at_view_transform(
@@ -321,25 +322,74 @@ class InjectedObject:
         )
 
         # Function to generate random RGB colors
-        def random_rgb(device):
-            color = (
-                torch.rand(1, 3, device=device) + 0.01
-            )  # Adjust the scaling and shifting factors as needed
-            # Ensure the colors are still in the valid range [0, 1]
-            color = torch.clamp(color, min=0.01, max=1)
-            # color[0, 1] = 0. # delete green channel
-            return color
+        def random_rgb(device, option=1):
+            
+            if option == 1:
+                color = (
+                    torch.rand(1, 3, device=device) + 0.01
+                )
+                color = torch.clamp(color, min=0.01, max=1)
+                return color
+            
+            if option == 2:
+                color = (
+                    torch.rand(1, 3, device=device) * 0.5 + 0.01
+                )
+                color = torch.clamp(color, min=0.01, max=0.5)
+                return color
+            
+            if option == 3:
+                color = (
+                    torch.rand(1, 3, device=device) * 0.33 + 0.01
+                )
+                color = torch.clamp(color, min=0.01, max=0.33)
+                return color
+            
+            elif option == 4:    
+                color = (
+                    torch.rand(1, 1, device=device) + 0.01
+                ).repeat(1, 3)
+                color = torch.clamp(color, min=0.01, max=1)
+                return color
+            
+            elif option == 5:
+                color = (
+                    torch.rand(1, 1, device=device) * 0.33 + 0.01
+                ).repeat(1, 3)
+                color = torch.clamp(color, min=0.01, max=0.33)
+                return color
+            
+            elif option == 6:
+                color = (
+                    torch.rand(1, 1, device=device) * 0.16 + 0.01
+                ).repeat(1, 3)
+                color = torch.clamp(color, min=0.01, max=0.16)
+                return color
+            else:
+                return None
+            
 
         device = self.device
         if random_colors is True:
             # Assuming your device is 'cuda:0'
 
             # Generate random colors for ambient and diffuse
-            ambient_color = random_rgb(device)
-            diffuse_color = random_rgb(device)
+            ambient_color = random_rgb(device, color_option)
+            diffuse_color = random_rgb(device, color_option)
             specular_color = random_rgb(
-                device
+                device, color_option
             )  # Specular can be different or white ([1, 1, 1]) for shiny highlights
+            
+            if color_option == 7:
+                ambient_color = torch.tensor([[0.3, 0.3, 0.1]])  # subtle yellow
+                diffuse_color = torch.tensor([[0.8, 0.8, 0.2]])  # bright yellow
+                specular_color = torch.tensor([[0.5, 0.5, 0.1]])  # pale yellow
+                
+            if color_option == 8:
+                ambient_color = torch.tensor([[2., 2., 2.]])  
+                diffuse_color = torch.tensor([[0., 0., 0.]])  
+                specular_color = torch.tensor([[0., 0., 0.]])  
+
 
             # Setup lights with random colors
             lights = PointLights(
@@ -347,24 +397,24 @@ class InjectedObject:
                 ambient_color=ambient_color,
                 diffuse_color=diffuse_color,
                 specular_color=specular_color,
-                location=[[0.0, 0.0, -3.0]],
+                location=[[0.0, 0.0, .0]],
             )
         else:
             lights = PointLights(
                 device=self.device, location=[[0.0, 0.0, -3.0]]
             )
 
-        if random_materials is True:
+        if random_materials is True and color_option != 7 and color_option != 8:
 
             if random_shininess is True:
                 shininess = torch.randint(low=64, high=5500, size=(1,))
             else:
                 shininess = 64
 
-            ambient_color = random_rgb(device)
-            diffuse_color = random_rgb(device)
+            ambient_color = random_rgb(device, color_option)
+            diffuse_color = random_rgb(device, color_option)
             specular_color = random_rgb(
-                device
+                device, color_option
             )  # Specular can be different or white ([1, 1, 1]) for shiny highlights
             # Setup materials
             material = Materials(
@@ -376,7 +426,24 @@ class InjectedObject:
             )
 
         else:
-            material = None
+            if color_option == 7:
+                material = Materials(
+                    device=device,
+                    specular_color=torch.tensor([[0.9, 0.9, 0.9]], device=device),  # High specular highlights
+                    shininess=torch.tensor([30.0], device=device),  # Corrected shininess shape
+                    ambient_color=torch.tensor([[0.2, 0.2, 0.2]], device=device),  # Ambient light reflection
+                    diffuse_color=torch.tensor([[1.0, 1.0, 1.0]], device=device)  # Max diffuse reflection
+                )
+            if color_option == 8:
+                material = Materials(
+                    device=device,
+                    specular_color=torch.tensor([[0.5, 0.5, 0.5]], device=device),  # High specular highlights
+                    shininess=torch.tensor([300.0], device=device),  # Corrected shininess shape
+                    ambient_color=torch.tensor([[1.0, 1.0, 1.0]], device=device),  # Ambient light reflection
+                    diffuse_color=torch.tensor([[1.0, 1.0, 1.0]], device=device)  # Max diffuse reflection
+                )
+            else:
+                material = None
 
         renderer = MeshRenderer(
             rasterizer=MeshRasterizer(
@@ -1070,6 +1137,7 @@ class InjectedObject:
         random_colors=True,
         random_materials=False,
         random_shininess=False,
+        color_option=1
     ):
 
         
@@ -1124,6 +1192,7 @@ class InjectedObject:
             random_colors=random_colors,
             random_materials=random_materials,
             random_shininess=random_shininess,
+            color_option=color_option
         )
         image_test = image.clone()
 

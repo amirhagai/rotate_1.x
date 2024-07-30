@@ -1,4 +1,4 @@
-from parse_dota_file import parse_one_file, get_boxes
+from parse_dota_file import parse_one_file, get_boxes, get_raw_bboxes
 from infer_camera_parameters import InjectedObject
 import torch
 from pathlib import Path
@@ -32,6 +32,15 @@ parser.add_argument(
     type=str_to_boll,
     default='1',
 )
+
+parser.add_argument(
+    '--color_option',
+    help='do you want to use random colors?',
+    type=int,
+    default=1,
+)
+
+
 parser.add_argument(
     '--random_materials',
     help='do you want to use random matirels?',
@@ -160,7 +169,7 @@ def get_jaccard_ind(segmantation_mask, corners, image_shape):
 
 def parse_one_image(
     image_path,
-    gif_images_path,
+    saving_path,
     obj_filename,
     annotation_folder_path,
     annotation_file_name,
@@ -172,7 +181,7 @@ def parse_one_image(
     # x = torch.rand(5000, 3)
     image_name = Path(image_path).name
 
-    injection_ycbcr_path = Path(gif_images_path).parent / 'ycbcr'
+    injection_ycbcr_path = Path(saving_path).parent / 'ycbcr'
     os.makedirs(injection_ycbcr_path, exist_ok=True)
 
     start = torch.cuda.Event(enable_timing=True)
@@ -180,27 +189,27 @@ def parse_one_image(
 
     start.record()
 
-    # bboxes = parse_one_file(
-    #     folder_path=annotation_folder_path,
-    #     file_name=annotation_file_name,
-    #     category=category,
-    # )
+    bboxes = parse_one_file(
+        folder_path=annotation_folder_path,
+        file_name=annotation_file_name,
+        category=category,
+    )
 
-    bboxes = get_boxes(
-                folder_path=annotation_folder_path,
-                file_name=annotation_file_name,
-                category='small-vehicle',
-                unwanted_category='large-vehicle'
-            )
+    # bboxes = get_boxes(
+    #             folder_path=annotation_folder_path,
+    #             file_name=annotation_file_name,
+    #             category='small-vehicle',
+    #             unwanted_category='large-vehicle'
+    #         )
     dota_np = np.array(Image.open(f'{image_path}'))
     if len(bboxes) == 0:
         # Image.fromarray(dota_np).save(f"{injection_ycbcr_path}/{image_name}")
         # Image.fromarray(dota_np).save(f"{gif_images_path}/{image_name}")
         return
 
-    os.makedirs(Path(gif_images_path).parent / 'mid_reults', exist_ok=True)
+    os.makedirs(Path(saving_path).parent / 'mid_reults', exist_ok=True)
     path_for_mid_results = (
-        Path(gif_images_path).parent / 'mid_reults' / Path(image_name).stem
+        Path(saving_path).parent / 'mid_reults' / Path(image_name).stem
     )
     os.makedirs(path_for_mid_results, exist_ok=True)
 
@@ -224,6 +233,7 @@ def parse_one_image(
             random_colors=args.random_colors,
             random_materials=args.random_materials,
             random_shininess=args.random_shininess,
+            color_option=args.color_option
         )
         if args.save_median_restuls is True:
             mid = image.copy()
@@ -286,8 +296,19 @@ def parse_one_image(
         # continue
         dota_np = (1 - segs[i]) * dota_np + segs[i] * images[i]
         # Image.fromarray(dota_np).save(f"{gif_images_path}/{i}_{image_name}")
-
-    Image.fromarray(dota_np).save(f'{gif_images_path}/{image_name}')
+        
+    Image.fromarray(dota_np).save(f'{saving_path}/{image_name}')
+    
+    
+    # anns = get_raw_bboxes(
+    #     folder_path=annotation_folder_path,
+    #     file_name=annotation_file_name,
+    #     category=category,)
+    # d = dota_np.copy()
+    # cv2.drawContours(d, np.array(anns).astype(np.int32).reshape(-1, 4, 1, 2), -1, (255, 0, 0), thickness=2)
+    # im = np.hstack([dota_np, d])
+    # plt.imshow(k)
+    # plt.savefig("/app/data/90.png")
 
     # create_gif(gif_images_path, int_comp=True)
     # dota_np = np.array(Image.open(f"{image_path}"))
@@ -304,32 +325,35 @@ def parse_one_image(
     torch.cuda.synchronize()
 
     print(f'elapsed_time - {start.elapsed_time(end) / 1000}\n\n\n')
+    
+    return dota_np
 
 
 def process_image(
     annotations_folder,
     annotation_file,
     images_folder,
-    gif_images_path,
+    saving_path,
     obj_filename,
     category='large-vehicle',
 ):
     # Extract the base file name without extension to match the image file
     base_name = os.path.splitext(annotation_file)[0]
     image_file = os.path.join(images_folder, f'{base_name}.png')
-    os.makedirs(gif_images_path, exist_ok=True)
+    os.makedirs(saving_path, exist_ok=True)
 
     # Check if the corresponding image file exists
     if os.path.exists(image_file):
-        parse_one_image(
+        im = parse_one_image(
             image_path=image_file,
-            gif_images_path=gif_images_path,
+            saving_path=saving_path,
             obj_filename=obj_filename,
             annotation_folder_path=annotations_folder,
             annotation_file_name=f'{Path(annotation_file).stem}.txt',
             category=category,
         )
     torch.cuda.empty_cache()
+    return im
 
 
 def worker_init():
@@ -445,7 +469,7 @@ def inject_random_location():
         image_file = os.path.join(images_folder, f'{base_name}.png')
 
         # Check if the corresponding image file exists
-        if os.path.exists(f'{saved_data_path_images}/{base_name}.png') and base_name is not 'P1462__1024__4944___824':
+        if os.path.exists(f'{saved_data_path_images}/{base_name}.png'):
             continue
         
         if os.path.exists(image_file):
@@ -467,7 +491,6 @@ def inject_random_location():
 
             dota_np = np.array(Image.open(f'{image_path}'))
             if len(bboxes) == 0:
-                
                 Image.fromarray(dota_np).save(f'{saved_data_path_images}/{base_name}.png')
                 save_annotation_file(annotations_folder, annotation_file_name, saved_data_path_annotatioins,base_name, lines=None)
                 continue
@@ -568,6 +591,11 @@ def inject_random_location():
                 # print(f"baseR - {injection.base_R}")
                 # print("\n\n\n")
                 
+            if len(Ts) == 0:
+                Image.fromarray(dota_np).save(f'{saved_data_path_images}/{base_name}.png')
+                save_annotation_file(annotations_folder, annotation_file_name, saved_data_path_annotatioins,base_name, lines=None)
+                continue
+
                 
             Ts = np.array(Ts)
             avg_T = Ts.mean(axis=(0, 1))
@@ -722,46 +750,74 @@ def create_dataset():
         # DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj'
     # )
     obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
+    # obj_filename = '/app/mmrotate/3Ddata/meshes/TruckCGTrader/Truck_final.obj'
 
-    images_path = '/app/data/test_injected/finals'
-    os.makedirs(images_path, exist_ok=True)
+    # images_path = '/app/data/test_injected/finals'
+    # os.makedirs(images_path, exist_ok=True)
 
-    gif_images_path = '/app/data/split_ss_dota/train_injected_container/images'
-    os.makedirs(gif_images_path, exist_ok=True)
+    saving_path = '/app/data/split_ss_dota/train_injected_container/images'
+    os.makedirs(saving_path, exist_ok=True)
 
-    debug_path = f'{images_path}/debug'
-    os.makedirs(debug_path, exist_ok=True)
+    # debug_path = f'{images_path}/debug'
+    # os.makedirs(debug_path, exist_ok=True)
 
-    annotations_folder = '/app/data/split_ss_dota/train/annfiles/'
-    images_folder = '/app/data/split_ss_dota/train/images'
+    # annotations_folder = '/app/data/split_ss_dota/val/annfiles/'
+    # images_folder = '/app/data/split_ss_dota/val/images'
+    
+    annotations_folder = '/app/data/test_colors/val/annfiles/'
+    images_folder = '/app/data/test_colors/val/images'
 
-    allready_done_images = set(
-        os.listdir('/app/data/split_ss_dota/train_injected/images')
-    )
+    # allready_done_images = set(
+    #     os.listdir('/app/data/split_ss_dota/train_injected/images')
+    # )
 
     for filename in os.listdir(images_folder):
+        
+        for arr in [[True, True, True], [True, True, False], [True, False, True], [True, False,False], [False, True, True], [False, True, False], [False, False,True], [False, False,False]]:
+        # for arr in [[True, False, False]]:
+            
+            args.random_colors = arr[0]
+            args.random_materials = arr[1]
+            args.random_shininess = arr[2]
+            
 
-        # if filename in allready_done_images:
-            # print(f"skip - {filename}")
-            # continue
+            for color_option in [1, 2, 3, 4, 5, 6, 7, 8]:
+                
+                print(f'arr - {arr}, color option - {color_option}')
+                args.color_option = color_option
+                # if filename in allready_done_images:
+                    # print(f"skip - {filename}")
+                    # continue
 
-        # print(f"working on- {filename}")
-        # if "P2710__1024__941___824" not in filename:
-        # continue
-        process_image(
-            annotations_folder,
-            filename,
-            images_folder,
-            gif_images_path,
-            obj_filename,
-        )
+                # print(f"working on- {filename}")
+                # if "P2710__1024__941___824" not in filename:
+                # continue
+                if os.path.exists(f'/app/data/test_colors/val/images/{args.random_colors}_{args.random_materials}_{args.random_shininess}_{color_option}.png'):
+                    continue
+                im = process_image(
+                    annotations_folder,
+                    filename,
+                    images_folder,
+                    saving_path,
+                    obj_filename,
+                )
+                Image.fromarray(im).save(f'/app/data/test_colors/val/images/{args.random_colors}_{args.random_materials}_{args.random_shininess}_{color_option}.png')
+                save_annotation_file(annotations_folder, 'P1788__1024__761___401.txt', '/app/data/test_colors/val/annfiles',f'{args.random_colors}_{args.random_materials}_{args.random_shininess}_{color_option}' ,lines=None)
+                
+                # anns = get_raw_bboxes(
+                # folder_path=annotations_folder,
+                # file_name='P1788__1024__761___401.txt',
+                # category='large-vehicle',)
+                # cv2.drawContours(im, np.array(anns).astype(np.int32).reshape(-1, 4, 1, 2), -1, (255, 0, 0), thickness=2)
+                # Image.fromarray(im).save(f'/app/data/test_colors/res_colors/Truck_with_ann_flat.png')
+                
 
         print('done')
 
 if __name__ == '__main__':
 
-    # create_dataset()
-    inject_random_location()
+    create_dataset()
+    # inject_random_location()
     # bs = 6
 
     # annotation_files = [
