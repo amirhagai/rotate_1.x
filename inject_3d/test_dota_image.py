@@ -57,7 +57,7 @@ parser.add_argument(
     '--save_median_restuls',
     help='save the midean results',
     type=str_to_boll,
-    default='1',
+    default='0',
 )
 
 parser.add_argument(
@@ -181,8 +181,9 @@ def parse_one_image(
     # x = torch.rand(5000, 3)
     image_name = Path(image_path).name
 
-    injection_ycbcr_path = Path(saving_path).parent / 'ycbcr'
-    os.makedirs(injection_ycbcr_path, exist_ok=True)
+    if args.save_ycbcr:
+        injection_ycbcr_path = Path(saving_path).parent / 'ycbcr'
+        os.makedirs(injection_ycbcr_path, exist_ok=True)
 
     start = torch.cuda.Event(enable_timing=True)
     end = torch.cuda.Event(enable_timing=True)
@@ -205,13 +206,15 @@ def parse_one_image(
     if len(bboxes) == 0:
         # Image.fromarray(dota_np).save(f"{injection_ycbcr_path}/{image_name}")
         # Image.fromarray(dota_np).save(f"{gif_images_path}/{image_name}")
-        return
+        return dota_np
 
     os.makedirs(Path(saving_path).parent / 'mid_reults', exist_ok=True)
-    path_for_mid_results = (
-        Path(saving_path).parent / 'mid_reults' / Path(image_name).stem
-    )
-    os.makedirs(path_for_mid_results, exist_ok=True)
+    
+    if args.save_median_restuls is True:
+        path_for_mid_results = (
+            Path(saving_path).parent / 'mid_reults' / Path(image_name).stem
+        )
+        os.makedirs(path_for_mid_results, exist_ok=True)
 
     print(f'number of bboxes - {len(bboxes)}')
     injection = InjectedObject(obj_filename, device='cuda:0')
@@ -225,6 +228,8 @@ def parse_one_image(
     for i in tqdm(range(len(bboxes))):
 
         bbox = torch.tensor(bboxes[i]).to(torch.float32)
+        if bbox.min() < 0:
+            continue
         corners = bbox.detach().cpu().numpy()
 
         image, segmantation_mask = injection(
@@ -419,11 +424,18 @@ def rotate_image(image, angle, center=None):
     rotated_image = cv2.warpAffine((image.cpu().numpy() * 255).astype(np.uint8), rotation_matrix, (width, height), borderValue=(0,0,0))
     return rotated_image
 
-
-def save_annotation_file(annotations_folder, annotation_file_name, saved_data_path_annotatioins, base_name,lines=None):
+def save_annotation_file(annotations_folder, annotation_file_name, saved_data_path_annotatioins, base_name, lines=None, class_to_replace='', class_to_add=''):
     with open(f'{annotations_folder}/{annotation_file_name}', 'r') as file:
         content = file.readlines()
         file.close()
+    
+    if content is not None:    
+        for i in range(len(content)):
+            content[i] = content[i].replace(class_to_replace, class_to_add)
+        
+    if lines is not None:
+        for i in range(len(lines)):
+            lines[i] = lines[i].replace(class_to_replace, class_to_add)
         
     with open(f'{saved_data_path_annotatioins}/{base_name}.txt', 'w') as file:
         file.writelines(content)  # Write the original content
@@ -720,8 +732,11 @@ def inject_random_location():
                 
             Image.fromarray(dota_np).save(f'{saved_data_path_images}/{base_name}.png')
             
-            save_annotation_file(annotations_folder, annotation_file_name, 
-                                saved_data_path_annotatioins, base_name, lines=lines)            
+            save_annotation_file(annotations_folder, 
+                                 annotation_file_name, 
+                                saved_data_path_annotatioins,
+                                base_name,
+                                lines=lines,)            
             
             # with open(f'{annotations_folder}/{annotation_file_name}', 'r') as file:
             #     content = file.readlines()
@@ -746,73 +761,49 @@ def create_dataset():
 
     app_path = Path(__file__).parent.parent
     DATA_DIR = f'{app_path}/mmrotate/3Ddata/'
-    # obj_filename = os.path.join(
-        # DATA_DIR, 'meshes/TruckCGTrader/Truck_final.obj'
-    # )
+
     obj_filename = os.path.join(DATA_DIR, 'meshes/Container/Container.obj')
-    # obj_filename = '/app/mmrotate/3Ddata/meshes/TruckCGTrader/Truck_final.obj'
 
-    # images_path = '/app/data/test_injected/finals'
-    # os.makedirs(images_path, exist_ok=True)
 
-    saving_path = '/app/data/split_ss_dota/train_injected_container/images'
-    os.makedirs(saving_path, exist_ok=True)
-
-    # debug_path = f'{images_path}/debug'
-    # os.makedirs(debug_path, exist_ok=True)
-
-    # annotations_folder = '/app/data/split_ss_dota/val/annfiles/'
-    # images_folder = '/app/data/split_ss_dota/val/images'
+    saving_path_images = '/app/data/split_ss_dota/added_container/images'
+    os.makedirs(saving_path_images, exist_ok=True)
     
-    annotations_folder = '/app/data/test_colors/val/annfiles/'
-    images_folder = '/app/data/test_colors/val/images'
+    saving_path_ann = '/app/data/split_ss_dota/added_container/annfiles'
+    os.makedirs(saving_path_ann, exist_ok=True)
 
-    # allready_done_images = set(
-    #     os.listdir('/app/data/split_ss_dota/train_injected/images')
-    # )
+
+    annotations_folder = '/app/data/split_ss_dota/train/annfiles/'
+    images_folder = '/app/data/split_ss_dota/train/images'
+    args.random_colors = True
+    args.random_materials = True
+    args.random_shininess = True
 
     for filename in os.listdir(images_folder):
         
-        for arr in [[True, True, True], [True, True, False], [True, False, True], [True, False,False], [False, True, True], [False, True, False], [False, False,True], [False, False,False]]:
-        # for arr in [[True, False, False]]:
-            
-            args.random_colors = arr[0]
-            args.random_materials = arr[1]
-            args.random_shininess = arr[2]
-            
+        # if filename != 'P1412__1024__2472___0.png':
+        #     continue
+        # if os.path.exists(f"/app/data/split_ss_dota/added_container/images/{filename}"):
+        #     continue
 
-            for color_option in [1, 2, 3, 4, 5, 6, 7, 8]:
-                
-                print(f'arr - {arr}, color option - {color_option}')
-                args.color_option = color_option
-                # if filename in allready_done_images:
-                    # print(f"skip - {filename}")
-                    # continue
-
-                # print(f"working on- {filename}")
-                # if "P2710__1024__941___824" not in filename:
-                # continue
-                if os.path.exists(f'/app/data/test_colors/val/images/{args.random_colors}_{args.random_materials}_{args.random_shininess}_{color_option}.png'):
-                    continue
-                im = process_image(
-                    annotations_folder,
-                    filename,
-                    images_folder,
-                    saving_path,
-                    obj_filename,
-                )
-                Image.fromarray(im).save(f'/app/data/test_colors/val/images/{args.random_colors}_{args.random_materials}_{args.random_shininess}_{color_option}.png')
-                save_annotation_file(annotations_folder, 'P1788__1024__761___401.txt', '/app/data/test_colors/val/annfiles',f'{args.random_colors}_{args.random_materials}_{args.random_shininess}_{color_option}' ,lines=None)
-                
-                # anns = get_raw_bboxes(
-                # folder_path=annotations_folder,
-                # file_name='P1788__1024__761___401.txt',
-                # category='large-vehicle',)
-                # cv2.drawContours(im, np.array(anns).astype(np.int32).reshape(-1, 4, 1, 2), -1, (255, 0, 0), thickness=2)
-                # Image.fromarray(im).save(f'/app/data/test_colors/res_colors/Truck_with_ann_flat.png')
-                
-
-        print('done')
+        print(f'start - {filename}')
+        args.color_option = 1
+        im = process_image(
+            annotations_folder,
+            filename,
+            images_folder,
+            saving_path_images,
+            obj_filename,
+        )
+        Image.fromarray(im).save(f'{saving_path_images}/{Path(filename).name}')
+        save_annotation_file(annotations_folder, 
+                             f'{Path(filename).stem}.txt',
+                             saving_path_ann,
+                             f'{Path(filename).stem}', 
+                             lines=None,
+                             class_to_replace='large-vehicle', 
+                            class_to_add='container'
+                            )
+        print(f'done - {filename}')
 
 if __name__ == '__main__':
 

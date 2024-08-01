@@ -373,22 +373,52 @@ class InjectedObject:
         if random_colors is True:
             # Assuming your device is 'cuda:0'
 
-            # Generate random colors for ambient and diffuse
-            ambient_color = random_rgb(device, color_option)
-            diffuse_color = random_rgb(device, color_option)
-            specular_color = random_rgb(
-                device, color_option
-            )  # Specular can be different or white ([1, 1, 1]) for shiny highlights
+            # # Generate random colors for ambient and diffuse
+            # ambient_color = random_rgb(device, color_option)
+            # diffuse_color = random_rgb(device, color_option)
+            # specular_color = random_rgb(
+            #     device, color_option
+            # )  # Specular can be different or white ([1, 1, 1]) for shiny highlights
+            
+            if color_option == 1:
+                ambient_color = torch.tensor([[5., 5., 5.]])  
+                diffuse_color = torch.tensor([[1., 1., 1.]])  
+                specular_color = torch.tensor([[2., 2., 2.]])  
+                
+            if color_option == 2:
+                ambient_color = torch.tensor([[1., 1., 1.]])  
+                diffuse_color = torch.tensor([[1.9, 1.9, 1.9]])  
+                specular_color = torch.tensor([[1.4, 1.4, 1.4]])  
+                
+            if color_option == 3:
+                ambient_color = torch.tensor([[1., 1., 1.]])  
+                diffuse_color = torch.tensor([[1., 1., 1.]])  
+                specular_color = torch.tensor([[1., 1., 1.]])  
+                
+            if color_option == 4:
+                ambient_color = torch.tensor([[2., 2., 2.]])  
+                diffuse_color = torch.tensor([[2., 2., 2.]])  
+                specular_color = torch.tensor([[2., 2., 2.]]) 
+                
+            if color_option == 5:
+                ambient_color = torch.tensor([[0.3, 0.3, 0.3]])  
+                diffuse_color = torch.tensor([[2.1, 2.1, 2.1]])  
+                specular_color = torch.tensor([[2., 2., 2.]])  
+                
+            if color_option == 6:
+                ambient_color = torch.tensor([[0.3, 0.3, 0.3]])  
+                diffuse_color = torch.tensor([[2.3, 2.3, 2.3]])  
+                specular_color = torch.tensor([[2., 2., 2.]])  
             
             if color_option == 7:
-                ambient_color = torch.tensor([[0.3, 0.3, 0.1]])  # subtle yellow
-                diffuse_color = torch.tensor([[0.8, 0.8, 0.2]])  # bright yellow
-                specular_color = torch.tensor([[0.5, 0.5, 0.1]])  # pale yellow
+                ambient_color = torch.tensor([[0.3, 0.3, 0.3]])  
+                diffuse_color = torch.tensor([[1.5, 1.5, 1.5]])  
+                specular_color = torch.tensor([[1., 1., 1.]])  
                 
             if color_option == 8:
-                ambient_color = torch.tensor([[2., 2., 2.]])  
-                diffuse_color = torch.tensor([[0., 0., 0.]])  
-                specular_color = torch.tensor([[0., 0., 0.]])  
+                ambient_color = torch.tensor([[0.3, 0.3, 0.3]])  
+                diffuse_color = torch.tensor([[2.5, 2.5, 2.5]])  
+                specular_color = torch.tensor([[2., 2., 2.]])  
 
 
             # Setup lights with random colors
@@ -404,7 +434,7 @@ class InjectedObject:
                 device=self.device, location=[[0.0, 0.0, -3.0]]
             )
 
-        if random_materials is True and color_option != 7 and color_option != 8:
+        if random_materials is True and color_option is None:
 
             if random_shininess is True:
                 shininess = torch.randint(low=64, high=5500, size=(1,))
@@ -426,22 +456,29 @@ class InjectedObject:
             )
 
         else:
-            if color_option == 7:
-                material = Materials(
-                    device=device,
-                    specular_color=torch.tensor([[0.9, 0.9, 0.9]], device=device),  # High specular highlights
-                    shininess=torch.tensor([30.0], device=device),  # Corrected shininess shape
-                    ambient_color=torch.tensor([[0.2, 0.2, 0.2]], device=device),  # Ambient light reflection
-                    diffuse_color=torch.tensor([[1.0, 1.0, 1.0]], device=device)  # Max diffuse reflection
-                )
-            if color_option == 8:
+            if color_option is not None:
                 material = Materials(
                     device=device,
                     specular_color=torch.tensor([[0.5, 0.5, 0.5]], device=device),  # High specular highlights
                     shininess=torch.tensor([300.0], device=device),  # Corrected shininess shape
-                    ambient_color=torch.tensor([[1.0, 1.0, 1.0]], device=device),  # Ambient light reflection
+                    ambient_color=torch.tensor([[0.2, 0.2, 0.2]], device=device),  # Ambient light reflection
                     diffuse_color=torch.tensor([[1.0, 1.0, 1.0]], device=device)  # Max diffuse reflection
                 )
+            # if color_option == 8:
+            #     material = Materials(
+            #         device=device,
+            #         specular_color=torch.tensor([[0.5, 0.5, 0.5]], device=device),  # High specular highlights
+            #         shininess=torch.tensor([30.0], device=device),  # Corrected shininess shape
+            #         ambient_color=torch.tensor([[0.2, 0.2, 0.2]], device=device),  # Ambient light reflection
+            #         diffuse_color=torch.tensor([[1.0, 1.0, 1.0]], device=device)  # Max diffuse reflection
+                
+            #     # material = Materials(
+            #     #     device=device,
+            #     #     specular_color=torch.tensor([[0.5, 0.5, 0.5]], device=device),  # High specular highlights
+            #     #     shininess=torch.tensor([300.0], device=device),  # Corrected shininess shape
+            #     #     ambient_color=torch.tensor([[1.0, 1.0, 1.0]], device=device),  # Ambient light reflection
+            #     #     diffuse_color=torch.tensor([[1.0, 1.0, 1.0]], device=device)  # Max diffuse reflection
+            #     )
             else:
                 material = None
 
@@ -1156,9 +1193,14 @@ class InjectedObject:
         # )  # now the bbox is axis aligned
 
         # # print(f"bbox after rotation - {bbox}")
+        # print(bbox)
         bbox, cloned_origin, x, y, w, h, angle, bbox_center, dx, dy = \
             self.param_update(bbox, image_shape)
-
+        if bbox is None:
+            return np.zeros((1024, 1024, 3), dtype=np.uint8), np.zeros(
+                (1024, 1024, 1), dtype=np.uint8
+            )
+        # print(bbox)
         R, T, extreme_pixels, aspect_ratio = self.find_R_T_for_injection(
             top_left=bbox[2],
             top_right=bbox[3],
